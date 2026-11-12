@@ -23,23 +23,30 @@ function get_mail_config(): array {
     }
 
     $config = [
-        'host'         => 'smtp.gmail.com',
-        'port'         => 587,
-        'username'     => 'warcurry590@gmail.com',
-        'password'     => 'best ukrq envy hxnl',
-        'encryption'   => 'tls',
-        'from_address' => 'warcurry590@gmail.com',
-        'from_name'    => 'Paikit Health Center'
+        'host'          => 'smtp.gmail.com',
+        'port'          => 587,
+        'username'      => 'warcurry590@gmail.com',
+        'password'      => 'best ukrq envy hxnl',
+        'encryption'    => 'tls',
+        'from_address'  => 'warcurry590@gmail.com',
+        'from_name'     => 'Paikit Health Center',
+        'brevo_api_key' => getenv('BREVO_API_KEY') ?: ''
     ];
 
     try {
         if (function_exists('get_db')) {
             $pdo = get_db();
-            $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings WHERE setting_key LIKE 'smtp_%' OR setting_key = 'resend_api_key'");
+            $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings WHERE setting_key LIKE 'smtp_%' OR setting_key IN ('resend_api_key', 'brevo_api_key')");
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 if ($row['setting_key'] === 'resend_api_key') {
                     if (!empty($row['setting_value'])) {
                         $config['resend_api_key'] = trim($row['setting_value']);
+                    }
+                    continue;
+                }
+                if ($row['setting_key'] === 'brevo_api_key') {
+                    if (!empty($row['setting_value'])) {
+                        $config['brevo_api_key'] = trim($row['setting_value']);
                     }
                     continue;
                 }
@@ -136,8 +143,46 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
     $config = get_mail_config();
     $lastError = null;
 
-    // 1. Primary: If SMTP credentials exist, send live email via PHPMailer (Gmail SMTP / Custom SMTP)
-    // This allows delivering directly to ANY recipient email (Gmail, Yahoo, Outlook, etc.) without domain sandbox restrictions.
+    $isCloudOrRender = !empty(getenv('RENDER')) || (!empty($_SERVER['HTTP_HOST']) && str_contains($_SERVER['HTTP_HOST'], 'onrender.com'));
+    $brevoKey = getenv('BREVO_API_KEY') ?: ($config['brevo_api_key'] ?? '');
+
+    // 1. Cloud Host Delivery (Render): Prioritize Brevo HTTPS API (Port 443)
+    // Cloud providers (such as Render) strictly block outbound SMTP ports 587 and 465.
+    // Brevo HTTPS API bypasses all port blocks and delivers directly to ANY recipient without domain requirements.
+    if ($isCloudOrRender && !empty($brevoKey)) {
+        try {
+            $ch = curl_init('https://api.brevo.com/v3/smtp/email');
+            $payload = json_encode([
+                'sender'      => ['name' => $config['from_name'], 'email' => $config['from_address']],
+                'to'          => [['email' => $toEmail, 'name' => $toName]],
+                'subject'     => $subject,
+                'htmlContent' => $htmlBody
+            ]);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'api-key: ' . trim($brevoKey),
+                'Content-Type: application/json',
+                'Accept: application/json'
+            ]);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+            $res = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($code >= 200 && $code < 300) {
+                return ['success' => true, 'sent' => true, 'simulated' => false, 'error' => null];
+            } else {
+                $lastError = "Brevo API Failed ($code): " . $res;
+                error_log($lastError);
+            }
+        } catch (\Throwable $e) {
+            $lastError = "Brevo Exception: " . $e->getMessage();
+            error_log($lastError);
+        }
+    }
+
+    // 2. Primary / Local: If SMTP credentials exist, send live email via PHPMailer (Gmail SMTP / Custom SMTP)
     if (!empty($config['username']) && !empty($config['password'])) {
         try {
             $mail = create_mailer();
@@ -163,49 +208,7 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
         }
     }
 
-    // 2. Secondary Fallback: Resend HTTPS API (Port 443 - for environments where SMTP ports are blocked)
-    $resendKey = getenv('RESEND_API_KEY') ?: ($config['resend_api_key'] ?? '');
-    if (!empty($resendKey)) {
-        try {
-            $ch = curl_init('https://api.resend.com/emails');
-            $sender = !empty($config['from_address']) && !str_ends_with($config['from_address'], '@gmail.com') 
-                ? "Paikit Health Center <{$config['from_address']}>" 
-                : 'Paikit Health Center <onboarding@resend.dev>';
-            $payload = json_encode([
-                'from'    => $sender,
-                'to'      => [$toEmail],
-                'subject' => $subject,
-                'html'    => $htmlBody
-            ]);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                'Authorization: Bearer ' . trim($resendKey),
-                'Content-Type: application/json'
-            ]);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-            $res = curl_exec($ch);
-            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlErr = curl_error($ch);
-            curl_close($ch);
-
-            if ($code >= 200 && $code < 300) {
-                return ['success' => true, 'sent' => true, 'simulated' => false, 'error' => null];
-            } else {
-                $lastError = "Resend API Failed ($code): " . (!empty($curlErr) ? $curlErr : $res);
-                error_log($lastError);
-            }
-        } catch (\Throwable $e) {
-            $lastError = "Resend Exception: " . $e->getMessage();
-            error_log($lastError);
-        }
-    }
-
-    // 3. Tertiary Fallback: Brevo HTTPS API (Port 443)
-    $brevoKey = getenv('BREVO_API_KEY') ?: ($config['brevo_api_key'] ?? '');
+    // 3. Fallback: Brevo HTTPS API (Port 443 - if SMTP failed or not on cloud)
     if (!empty($brevoKey)) {
         try {
             $ch = curl_init('https://api.brevo.com/v3/smtp/email');
@@ -231,9 +234,11 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
                 return ['success' => true, 'sent' => true, 'simulated' => false, 'error' => null];
             } else {
                 $lastError = "Brevo API Failed ($code): " . $res;
+                error_log($lastError);
             }
         } catch (\Throwable $e) {
             $lastError = "Brevo Exception: " . $e->getMessage();
+            error_log($lastError);
         }
     }
 

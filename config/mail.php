@@ -168,7 +168,20 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
             } else {
                 $errorDetail = !empty($curlErr) ? $curlErr : $res;
                 error_log("Resend API Delivery Failed ($code): " . $errorDetail);
-                // Return immediately so it doesn't fall through to blocked SMTP ports
+                $isLocal = (!isset($_SERVER['REMOTE_ADDR']) || in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1', 'localhost']) || str_contains($_SERVER['HTTP_HOST'] ?? '', 'localhost') || php_sapi_name() === 'cli');
+                if ($isLocal) {
+                    try {
+                        $logDir = __DIR__ . '/../logs';
+                        if (!is_dir($logDir)) {
+                            @mkdir($logDir, 0777, true);
+                        }
+                        $logLine = "[" . date('Y-m-d H:i:s') . "] (LOCAL FALLBACK - RESEND CODE {$code}) TO: {$toEmail} ({$toName}) | SUBJECT: {$subject}\n";
+                        @file_put_contents($logDir . '/mail.log', $logLine, FILE_APPEND);
+                        @file_put_contents($logDir . '/latest_verification_email.html', $htmlBody);
+                    } catch (\Throwable $t) {}
+
+                    return ['success' => true, 'sent' => false, 'simulated' => true, 'error' => null, 'notice' => "Local fallback mode enabled ($code)."];
+                }
                 return ['success' => false, 'sent' => false, 'simulated' => false, 'error' => "Resend Error ($code): " . $errorDetail];
             }
         } catch (\Throwable $e) {
@@ -367,6 +380,89 @@ function send_password_reset_email(string $recipientEmail, string $recipientName
              . "{$resetLink}\n\n"
              . "This link will expire in {$expiresMinutes} minutes.\n\n"
              . "If you did not request this, please ignore this message.\n\n"
+             . "Paikit Health Center, Canlubang, Calamba City, Laguna.";
+
+    return send_system_email($recipientEmail, $recipientName, $subject, $htmlBody, $altBody);
+}
+
+/**
+ * Sends an Official Email Verification email with OTP code and Instant Activation Link.
+ */
+function send_verification_email(string $recipientEmail, string $recipientName, string $otpCode, string $verifyLink, int $expiresMinutes = 60): array {
+    $subject = "Verify Your Email Address - Paikit Health Center";
+
+    $htmlBody = '
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Email Verification - Paikit Health Center</title>
+        <style>
+            body { font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+            .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05); }
+            .header { background: linear-gradient(135deg, #15803d 0%, #14532d 100%); color: #ffffff; padding: 28px 24px; text-align: center; }
+            .content { padding: 32px 28px; line-height: 1.6; }
+            .otp-box { background: #f0fdf4; border: 2px dashed #16a34a; border-radius: 10px; padding: 18px 24px; text-align: center; margin: 24px 0; }
+            .otp-code { font-size: 34px; font-weight: 800; letter-spacing: 8px; color: #15803d; font-family: monospace; display: inline-block; }
+            .btn-verify { display: inline-block; background-color: #15803d; color: #ffffff !important; text-decoration: none; padding: 13px 32px; border-radius: 8px; font-weight: 700; font-size: 15px; margin: 16px 0; }
+            .footer { background-color: #f1f5f9; padding: 18px 24px; text-align: center; font-size: 12px; color: #64748b; border-top: 1px solid #e2e8f0; }
+            .notice-box { background-color: #fefce8; border-left: 4px solid #ca8a04; padding: 12px 16px; margin: 18px 0; border-radius: 4px; font-size: 13px; color: #854d0e; }
+            .link-text { word-break: break-all; color: #0284c7; font-size: 12px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h2 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0.5px;">PAIKIT HEALTH CENTER</h2>
+                <div style="font-size: 13px; opacity: 0.9; margin-top: 4px;">Primary Care & Consultation Information System</div>
+            </div>
+            <div class="content">
+                <h3 style="margin-top: 0; color: #0f172a;">Verify Your Email Address</h3>
+                <p>Hello <strong>' . htmlspecialchars($recipientName, ENT_QUOTES, 'UTF-8') . '</strong>,</p>
+                <p>Thank you for registering with the <strong>Paikit Health Center Portal</strong>. Before you can sign in to your patient account, we need to verify your registered email address (<strong>' . htmlspecialchars($recipientEmail, ENT_QUOTES, 'UTF-8') . '</strong>).</p>
+                
+                <p style="margin-bottom: 6px;">You can verify your account by entering this <strong>6-digit verification code</strong> on the verification screen:</p>
+                
+                <div class="otp-box">
+                    <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #166534; margin-bottom: 6px; letter-spacing: 1px;">Your Verification Code</div>
+                    <div class="otp-code">' . htmlspecialchars($otpCode, ENT_QUOTES, 'UTF-8') . '</div>
+                </div>
+
+                <div style="text-align: center; margin: 20px 0;">
+                    <p style="margin-bottom: 8px; font-size: 14px; color: #475569;">Or click the instant activation button below:</p>
+                    <a href="' . htmlspecialchars($verifyLink, ENT_QUOTES, 'UTF-8') . '" class="btn-verify" target="_blank">
+                        Verify My Account Now
+                    </a>
+                </div>
+
+                <div class="notice-box">
+                    <strong>Note:</strong> This verification code and link will expire in <strong>' . $expiresMinutes . ' minutes</strong>. Once expired, you will need to request a new verification code.
+                </div>
+
+                <p style="font-size: 13px; color: #64748b;">If the button does not work, copy and paste this link into your browser:</p>
+                <p class="link-text">' . htmlspecialchars($verifyLink, ENT_QUOTES, 'UTF-8') . '</p>
+
+                <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+                
+                <p style="font-size: 12px; color: #94a3b8; margin-bottom: 0;">
+                    If you did not sign up for an account at Paikit Health Center, please ignore this email. No account will be activated without your confirmation.
+                </p>
+            </div>
+            <div class="footer">
+                <div><strong>Paikit Health Center</strong> &bull; Sitio Paikit, Canlubang, Calamba City, Laguna 4028</div>
+                <div style="margin-top: 4px;">Protected under Republic Act No. 10173 (Data Privacy Act of 2012).</div>
+            </div>
+        </div>
+    </body>
+    </html>';
+
+    $altBody = "PAIKIT HEALTH CENTER - EMAIL VERIFICATION\n\n"
+             . "Hello {$recipientName},\n\n"
+             . "Thank you for registering. Before you can sign in, please verify your email address.\n\n"
+             . "Your 6-Digit Verification Code: {$otpCode}\n\n"
+             . "Or activate your account directly with this link:\n{$verifyLink}\n\n"
+             . "This code expires in {$expiresMinutes} minutes.\n\n"
              . "Paikit Health Center, Canlubang, Calamba City, Laguna.";
 
     return send_system_email($recipientEmail, $recipientName, $subject, $htmlBody, $altBody);

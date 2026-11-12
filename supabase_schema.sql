@@ -63,6 +63,8 @@ CREATE TABLE users (
   email VARCHAR(100) DEFAULT NULL,
   password_hash VARCHAR(255) NOT NULL,
   role VARCHAR(20) NOT NULL CHECK (role IN ('Doctor', 'Staff', 'Client')),
+  is_verified SMALLINT NOT NULL DEFAULT 0,
+  email_verified_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_users_patient_id ON users(patient_id);
@@ -157,6 +159,20 @@ CREATE TABLE password_resets (
 CREATE INDEX idx_pwd_resets_token ON password_resets(token);
 CREATE INDEX idx_pwd_resets_user_id ON password_resets(user_id);
 
+-- 3.8.1 Email Verifications Table
+CREATE TABLE email_verifications (
+  verification_id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  email VARCHAR(100) NOT NULL,
+  otp_code VARCHAR(10) NOT NULL,
+  token VARCHAR(64) NOT NULL UNIQUE,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_email_verif_token ON email_verifications(token);
+CREATE INDEX idx_email_verif_code ON email_verifications(email, otp_code);
+CREATE INDEX idx_email_verif_user ON email_verifications(user_id);
+
 -- 3.9 System Settings Table
 CREATE TABLE system_settings (
   setting_key VARCHAR(50) PRIMARY KEY,
@@ -216,11 +232,11 @@ INSERT INTO patients (patient_id, mobile_number, email, full_name, first_name, m
 ON CONFLICT (patient_id) DO NOTHING;
 
 -- System Users (Doctor, Staff, Registered Clients)
-INSERT INTO users (user_id, patient_id, username, full_name, email, password_hash, role) VALUES
-(1, NULL, 'doctor', 'Dr. Lanie Manaig, MD', 'doctor@paikit.health', '$2y$12$Wxxozk1qcIXjzuG8k9Uyye.QeNJhFN/t9NKRJIUs/OqRvKK9bU/Mu', 'Doctor'),
-(2, NULL, 'staff', 'Ana Reyes, RN (Staff Nurse)', 'staff@paikit.health', '$2y$12$Wxxozk1qcIXjzuG8k9Uyye.QeNJhFN/t9NKRJIUs/OqRvKK9bU/Mu', 'Staff'),
-(3, 1, 'client', 'Juan Dela Cruz', 'client@paikit.health', '$2y$12$Wxxozk1qcIXjzuG8k9Uyye.QeNJhFN/t9NKRJIUs/OqRvKK9bU/Mu', 'Client'),
-(4, 4, 'johnrommel', 'John Rommel', 'delosangelesjanjan@gmail.com', '$2y$12$Wxxozk1qcIXjzuG8k9Uyye.QeNJhFN/t9NKRJIUs/OqRvKK9bU/Mu', 'Client')
+INSERT INTO users (user_id, patient_id, username, full_name, email, password_hash, role, is_verified, email_verified_at) VALUES
+(1, NULL, 'doctor', 'Dr. Lanie Manaig, MD', 'doctor@paikit.health', '$2y$12$Wxxozk1qcIXjzuG8k9Uyye.QeNJhFN/t9NKRJIUs/OqRvKK9bU/Mu', 'Doctor', 1, NOW()),
+(2, NULL, 'staff', 'Ana Reyes, RN (Staff Nurse)', 'staff@paikit.health', '$2y$12$Wxxozk1qcIXjzuG8k9Uyye.QeNJhFN/t9NKRJIUs/OqRvKK9bU/Mu', 'Staff', 1, NOW()),
+(3, 1, 'client', 'Juan Dela Cruz', 'client@paikit.health', '$2y$12$Wxxozk1qcIXjzuG8k9Uyye.QeNJhFN/t9NKRJIUs/OqRvKK9bU/Mu', 'Client', 1, NOW()),
+(4, 4, 'johnrommel', 'John Rommel', 'delosangelesjanjan@gmail.com', '$2y$12$Wxxozk1qcIXjzuG8k9Uyye.QeNJhFN/t9NKRJIUs/OqRvKK9bU/Mu', 'Client', 1, NOW())
 ON CONFLICT (user_id) DO NOTHING;
 
 -- Doctor Schedules

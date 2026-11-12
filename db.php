@@ -118,6 +118,96 @@ function get_db(): PDO {
 $pdo = get_db();
 
 /**
+ * Ensures email verification schema exists in MySQL and PostgreSQL environments.
+ */
+function ensure_email_verification_schema(?PDO $pdo = null): void {
+    static $ensured = false;
+    if ($ensured) return;
+    $ensured = true;
+
+    try {
+        if (!$pdo) {
+            $pdo = get_db();
+        }
+        $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+
+        // Check if is_verified and email_verified_at exist in users table
+        $hasIsVerified = false;
+        $hasVerifiedAt = false;
+        if ($driver === 'pgsql') {
+            $stmt = $pdo->query("SELECT column_name FROM information_schema.columns WHERE table_name = 'users'");
+            $cols = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            $hasIsVerified = in_array('is_verified', $cols, true);
+            $hasVerifiedAt = in_array('email_verified_at', $cols, true);
+        } else {
+            $stmt = $pdo->query("SHOW COLUMNS FROM `users`");
+            while ($col = $stmt->fetch()) {
+                if ($col['Field'] === 'is_verified') $hasIsVerified = true;
+                if ($col['Field'] === 'email_verified_at') $hasVerifiedAt = true;
+            }
+        }
+
+        if (!$hasIsVerified) {
+            if ($driver === 'pgsql') {
+                $pdo->exec("ALTER TABLE users ADD COLUMN is_verified SMALLINT DEFAULT 0");
+            } else {
+                $pdo->exec("ALTER TABLE users ADD COLUMN `is_verified` TINYINT(1) NOT NULL DEFAULT 0 AFTER `role`");
+            }
+            // Mark existing initial users (Doctor, Staff, prior accounts) as verified
+            $pdo->exec("UPDATE users SET is_verified = 1 WHERE is_verified = 0 OR is_verified IS NULL");
+        }
+
+        if (!$hasVerifiedAt) {
+            if ($driver === 'pgsql') {
+                $pdo->exec("ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP NULL DEFAULT NULL");
+            } else {
+                $pdo->exec("ALTER TABLE users ADD COLUMN `email_verified_at` DATETIME DEFAULT NULL AFTER `is_verified`");
+            }
+            $pdo->exec("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE is_verified = 1 AND email_verified_at IS NULL");
+        }
+
+        // Ensure email_verifications table exists
+        if ($driver === 'pgsql') {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS email_verifications (
+                    verification_id SERIAL PRIMARY KEY,
+                    user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    email VARCHAR(100) NOT NULL,
+                    otp_code VARCHAR(10) NOT NULL,
+                    token VARCHAR(64) NOT NULL UNIQUE,
+                    expires_at TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_email_verif_token ON email_verifications(token);
+                CREATE INDEX IF NOT EXISTS idx_email_verif_code ON email_verifications(email, otp_code);
+                CREATE INDEX IF NOT EXISTS idx_email_verif_user ON email_verifications(user_id);
+            ");
+        } else {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS `email_verifications` (
+                    `verification_id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `user_id` INT NOT NULL,
+                    `email` VARCHAR(100) NOT NULL,
+                    `otp_code` VARCHAR(10) NOT NULL,
+                    `token` VARCHAR(64) NOT NULL UNIQUE,
+                    `expires_at` DATETIME NOT NULL,
+                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX `idx_email_verif_token` (`token`),
+                    INDEX `idx_email_verif_code` (`email`, `otp_code`),
+                    INDEX `idx_email_verif_user` (`user_id`),
+                    FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ");
+        }
+    } catch (\Throwable $e) {
+        error_log("ensure_email_verification_schema warning: " . $e->getMessage());
+    }
+}
+
+// Automatically enforce verification schema
+ensure_email_verification_schema($pdo);
+
+/**
  * Security: Authentication Check
  */
 function is_logged_in(): bool {

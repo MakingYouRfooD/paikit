@@ -48,9 +48,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['book_appointm
 
         // Check 0: Validate format & past date
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $appointmentDate)) {
-            $error = "Mangyaring pumili ng wastong petsa (Please select a valid consultation date).";
+            $error = "Please select a valid consultation date.";
         } elseif ($appointmentDate < date('Y-m-d')) {
-            $error = "Hindi maaaring mag-book sa nakalipas na petsa (Cannot book for past dates). Please select today or an upcoming weekday.";
+            $error = "Cannot book for past dates. Please select today or an upcoming weekday.";
         } else {
             // Check 1: Exclude Saturday (6) and Sunday (7 / 0)
             $dayOfWeek = (int)date('N', strtotime($appointmentDate));
@@ -74,8 +74,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['book_appointm
                     $existingTicket = $stmtExist->fetch();
 
                     if ($existingTicket) {
-                        $statusText = ($existingTicket['approval_status'] === 'Pending') ? 'kasalukuyang Pending Review ng Staff' : 'Approved & Active';
-                        $error = "Mayroon ka nang appointment ticket (#{$existingTicket['queue_number']}) na {$statusText} para sa petsang ito (" . date('F j, Y', strtotime($appointmentDate)) . "). Kung nais mong baguhin o kanselahin, mangyaring i-cancel muna ang kasalukuyang ticket.";
+                        $statusText = ($existingTicket['approval_status'] === 'Pending') ? 'Pending Staff Review' : 'Approved & Active';
+                        $error = "You already have an appointment ticket (#{$existingTicket['queue_number']}) that is currently {$statusText} for this date (" . date('F j, Y', strtotime($appointmentDate)) . "). If you wish to reschedule or change details, please cancel your existing ticket first.";
                     } else {
                         // Check 4: Check Doctor's availability & quota limit for this day (Doctor sets daily quota & unavailability)
                         $stmtDocSched = $pdo->prepare("SELECT is_available, max_slots, notes FROM doctor_schedules WHERE duty_date = ?");
@@ -147,7 +147,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['cancel_appoin
             $stmtC = $pdo->prepare("UPDATE encounters SET queue_status = 'Cancelled' WHERE encounter_id = ? AND patient_id = ? AND queue_status = 'Waiting'");
             $stmtC->execute([$cancelId, $patientId]);
             audit_log('APPOINTMENT_CANCELLED_BY_PATIENT', "Patient #{$patientId} cancelled appointment Encounter #{$cancelId}.");
-            header("Location: dashboard?msg=" . urlencode("Nai-cancel na po ang iyong appointment matagumpay."));
+            header("Location: dashboard?msg=" . urlencode("Your appointment request has been successfully cancelled."));
             exit;
         }
     }
@@ -363,7 +363,7 @@ if ($activeTicket) {
             const val = input.value;
             const todayStr = '<?= date('Y-m-d') ?>';
             if (val < todayStr) {
-                alert('Notice: Hindi maaaring pumili ng nakalipas na petsa (Cannot select past dates). Please choose today or an upcoming weekday.');
+                alert('Notice: Cannot select past dates. Please choose today or an upcoming weekday.');
                 input.value = todayStr;
                 return false;
             }
@@ -1081,12 +1081,12 @@ if ($activeTicket) {
                                             <i class="bi bi-bell-fill text-warning me-1"></i> Makatatanggap ka ng update sa portal at email kapag naaprubahan na ang iyong ticket pass.
                                         </div>
                                         <div>
-                                            <form action="dashboard" method="POST" onsubmit="return confirm('Sigurado ka bang nais mong kanselahin ang appointment request na ito?');">
+                                            <form action="dashboard" method="POST" onsubmit="return confirm('Are you sure you want to cancel this appointment request?');">
                                                 <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
                                                 <input type="hidden" name="cancel_appointment" value="1">
                                                 <input type="hidden" name="encounter_id" value="<?= (int)$activeTicket['encounter_id'] ?>">
                                                 <button type="submit" class="btn btn-outline-danger btn-sm rounded-pill fw-semibold">
-                                                    <i class="bi bi-x-circle me-1"></i> I-cancel ang Request na Ito
+                                                    <i class="bi bi-x-circle me-1"></i> Cancel This Request
                                                 </button>
                                             </form>
                                         </div>
@@ -1761,7 +1761,7 @@ if ($activeTicket) {
                                                         <i class="bi bi-printer me-1"></i> View / Print Digital Slip
                                                     </a>
                                                 <?php endif; ?>
-                                                <form action="dashboard" method="POST" onsubmit="return confirm('Sigurado ka bang nais mong kanselahin ang appointment na ito para sa <?= addslashes(date('F j, Y', $visitTs)) ?>?');">
+                                                <form action="dashboard" method="POST" onsubmit="return confirm('Are you sure you want to cancel this appointment scheduled for <?= addslashes(date('F j, Y', $visitTs)) ?>?');">
                                                     <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
                                                     <input type="hidden" name="cancel_appointment" value="1">
                                                     <input type="hidden" name="encounter_id" value="<?= (int)$pa['encounter_id'] ?>">

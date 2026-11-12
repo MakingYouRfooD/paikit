@@ -40,6 +40,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_submit'])) {
             $user = $stmt->fetch();
 
             if ($user && password_verify($password, $user['password_hash'])) {
+                // Enforce email verification strictly for Client accounts before permitting login
+                $isVerified = isset($user['is_verified']) ? (int)$user['is_verified'] : 1;
+                if ($user['role'] === 'Client' && $isVerified === 0) {
+                    $targetEmail = !empty($user['email']) ? $user['email'] : (!empty($user['patient_email']) ? $user['patient_email'] : $loginInput);
+                    audit_log('LOGIN_BLOCKED_UNVERIFIED', "User '{$user['username']}' attempted login without verified email ({$targetEmail}).", 'users', (string)$user['user_id']);
+                    header("Location: verify_email?email=" . urlencode($targetEmail) . "&error=" . urlencode("Your email address is not verified yet. Please enter the 6-digit verification code sent to your email or request a new code before signing in."));
+                    exit;
+                }
+
                 // Regenerate session ID to prevent session fixation attacks
                 session_regenerate_id(true);
 
@@ -185,22 +194,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['client_signup'])) {
                             }
 
                             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-                            $stmtNewUser = $pdo->prepare("INSERT INTO users (patient_id, username, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?, 'Client')");
+                            $stmtNewUser = $pdo->prepare("INSERT INTO users (patient_id, username, full_name, email, password_hash, role, is_verified) VALUES (?, ?, ?, ?, ?, 'Client', 0)");
                             $stmtNewUser->execute([$patientId, $username, $fullName, $email, $passwordHash]);
                             $newUserId = (int)$pdo->lastInsertId();
 
+                            // Generate cryptographically secure OTP & Token for Email Verification
+                            $otpCode = sprintf('%06d', random_int(100000, 999999));
+                            $token = bin2hex(random_bytes(32));
+                            $expiresAt = date('Y-m-d H:i:s', time() + 3600);
+
+                            // Invalidate any previous verifications for this user ID
+                            $stmtDelVerif = $pdo->prepare("DELETE FROM email_verifications WHERE user_id = ?");
+                            $stmtDelVerif->execute([$newUserId]);
+
+                            // Store verification record
+                            $stmtInsVerif = $pdo->prepare("
+                                INSERT INTO email_verifications (user_id, email, otp_code, token, expires_at) 
+                                VALUES (?, ?, ?, ?, ?)
+                            ");
+                            $stmtInsVerif->execute([$newUserId, $email, $otpCode, $token, $expiresAt]);
+
                             $pdo->commit();
 
-                            // Auto Login as Client
-                            session_regenerate_id(true);
-                            $_SESSION['user_id']    = $newUserId;
-                            $_SESSION['username']   = $username;
-                            $_SESSION['role']       = 'Client';
-                            $_SESSION['patient_id'] = $patientId;
-                            $_SESSION['full_name']  = $fullName;
+                            // Build Absolute Verification URL
+                            $protocol = (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) 
+                                ? $_SERVER['HTTP_X_FORWARDED_PROTO'] 
+                                : ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https" : "http");
+                            $host = $_SERVER['HTTP_HOST'];
+                            $baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
+                            $verifyLink = "{$protocol}://{$host}{$baseDir}/verify_email?token={$token}";
 
-                            audit_log('PATIENT_SELF_REGISTERED', "Patient {$fullName} registered account '{$username}' (Email: {$email}, Mobile: {$mobile}).");
-                            header("Location: client/dashboard?msg=" . urlencode("Registered Successfully! Welcome to Paikit Health Center."));
+                            // Dispatch Verification Email
+                            require_once __DIR__ . '/config/mail.php';
+                            $mailResult = send_verification_email($email, $fullName, $otpCode, $verifyLink, 60);
+
+                            audit_log('PATIENT_SELF_REGISTERED', "Patient {$fullName} registered account '{$username}' (Email: {$email}, Mobile: {$mobile}). Email verification pending.", 'users', (string)$newUserId);
+
+                            // Redirect user to email verification portal (strictly no auto-login before email verification)
+                            header("Location: verify_email?email=" . urlencode($email) . "&msg=" . urlencode("Registration successful! We have sent a 6-digit verification code to " . $email . ". Please verify your email before logging in."));
                             exit;
                         } catch (Exception $e) {
                             if ($pdo->inTransaction()) {
@@ -667,9 +698,15 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
                             <div class="mb-3">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
                                     <label class="form-label fw-bold small text-dark mb-0">Password</label>
-                                    <a href="forgot_password" class="text-primary small fw-semibold text-decoration-none" style="font-size: 0.8rem;">
-                                        Forgot Password?
-                                    </a>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <a href="verify_email" class="text-success small fw-semibold text-decoration-none" style="font-size: 0.8rem;" title="Enter verification code for new accounts">
+                                            Verify Email?
+                                        </a>
+                                        <span class="text-muted small" style="font-size: 0.75rem;">&bull;</span>
+                                        <a href="forgot_password" class="text-primary small fw-semibold text-decoration-none" style="font-size: 0.8rem;">
+                                            Forgot Password?
+                                        </a>
+                                    </div>
                                 </div>
                                 <div class="input-group">
                                     <span class="input-group-text bg-white"><i class="bi bi-lock text-primary"></i></span>
@@ -1100,7 +1137,10 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
     window.addEventListener('DOMContentLoaded', () => {
         const hasError = <?= (!empty($error) && !empty($errorScope)) ? 'true' : 'false' ?>;
         const errorScope = '<?= $errorScope ?? '' ?>';
-        if (hasError) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const shouldOpenLogin = urlParams.get('action') === 'login' || urlParams.get('login') === '1';
+
+        if (hasError || shouldOpenLogin) {
             const modalEl = document.getElementById('loginModal');
             if (modalEl) {
                 const modal = bootstrap.Modal.getOrCreateInstance(modalEl);

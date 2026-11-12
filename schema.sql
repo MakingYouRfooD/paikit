@@ -48,6 +48,8 @@ CREATE TABLE `users` (
   `email` VARCHAR(100) DEFAULT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `role` ENUM('Doctor', 'Staff', 'Client') NOT NULL,
+  `is_verified` TINYINT(1) NOT NULL DEFAULT 0,
+  `email_verified_at` DATETIME DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (`patient_id`) REFERENCES `patients`(`patient_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -144,5 +146,21 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_token` (`token`),
   INDEX `idx_user_id` (`user_id`),
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 9. Email Verifications Table
+-- Stores temporary 6-digit OTP codes and secure tokens for new user email verification.
+CREATE TABLE IF NOT EXISTS `email_verifications` (
+  `verification_id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NOT NULL,
+  `email` VARCHAR(100) NOT NULL,
+  `otp_code` VARCHAR(10) NOT NULL,
+  `token` VARCHAR(64) NOT NULL UNIQUE,
+  `expires_at` DATETIME NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_email_verif_token` (`token`),
+  INDEX `idx_email_verif_code` (`email`, `otp_code`),
+  INDEX `idx_email_verif_user` (`user_id`),
   FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

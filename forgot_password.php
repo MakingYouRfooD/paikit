@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 SELECT u.user_id, u.username, u.email, u.full_name, p.full_name AS patient_name, p.email AS patient_email
                 FROM users u
                 LEFT JOIN patients p ON u.patient_id = p.patient_id
-                WHERE u.email = ? OR p.email = ?
+                WHERE LOWER(u.email) = LOWER(?) OR LOWER(p.email) = LOWER(?)
                 LIMIT 1
             ");
             $stmt->execute([$inputEmail, $inputEmail]);
@@ -71,9 +71,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = "Unable to dispatch email: " . sanitize($mailResult['error'] ?? 'Network delivery failed. Please check SMTP/API configuration.');
                 }
             } else {
-                // RA 10173 Security: Generic confirmation to prevent email enumeration
-                audit_log('PASSWORD_RESET_UNKNOWN_EMAIL', "Password reset attempted for unregistered email '{$inputEmail}'.");
-                $success = "If an account matches that email address, an official password reset email has been dispatched. Please check your inbox.";
+                audit_log('PASSWORD_RESET_BLOCKED_UNREGISTERED', "Password reset rejected: unregistered email '{$inputEmail}'.");
+                $error = "The email address '" . sanitize($inputEmail) . "' is not registered to any account in our health center system. Please check your spelling or register for a new account.";
             }
         }
     }
@@ -175,18 +174,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </a>
                         </div>
                     <?php else: ?>
-                        <form action="forgot_password" method="POST" id="forgotPasswordForm">
+                        <form action="forgot_password" method="POST" id="forgotPasswordForm" onsubmit="return validateForgotForm(event);">
                             <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
 
                             <div class="mb-3">
                                 <label for="emailInput" class="form-label fw-bold small text-dark">Registered Email Address</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light text-muted"><i class="bi bi-envelope"></i></span>
-                                    <input type="email" name="email" id="emailInput" class="form-control" placeholder="e.g. juan.delacruz@gmail.com" required autofocus value="<?= sanitize($_POST['email'] ?? '') ?>">
+                                    <input type="email" name="email" id="emailInput" class="form-control" placeholder="e.g. juan.delacruz@gmail.com" required autofocus value="<?= sanitize($_POST['email'] ?? '') ?>" oninput="checkForgotEmail(this.value)">
                                 </div>
+                                <div id="forgotEmailFeedback" class="mt-1" style="font-size: 0.75rem;"></div>
                             </div>
 
-                            <button type="submit" class="btn btn-primary w-100 fw-bold py-2 shadow-sm mb-3">
+                            <button type="submit" id="btnSubmitReset" class="btn btn-primary w-100 fw-bold py-2 shadow-sm mb-3">
                                 <i class="bi bi-send me-1"></i> Send Reset Link
                             </button>
 
@@ -215,5 +215,108 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </footer>
 
     <script src="js/bootstrap.bundle.min.js"></script>
+    <script>
+        let forgotCheckTimeout = null;
+        let forgotEmailRegistered = false;
+
+        function checkForgotEmail(email) {
+            email = (email || '').trim();
+            const input = document.getElementById('emailInput');
+            const feedback = document.getElementById('forgotEmailFeedback');
+            const btn = document.getElementById('btnSubmitReset');
+            if (!input || !feedback) return;
+
+            input.classList.remove('is-valid', 'is-invalid');
+
+            if (!email) {
+                feedback.innerHTML = '';
+                forgotEmailRegistered = false;
+                if (btn) btn.disabled = false;
+                return;
+            }
+
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                feedback.innerHTML = '<span class="text-muted"><i class="bi bi-pencil me-1"></i> Please complete email address</span>';
+                forgotEmailRegistered = false;
+                return;
+            }
+
+            feedback.innerHTML = '<span class="text-muted"><i class="spinner-border spinner-border-sm me-1" style="width: 0.75rem; height: 0.75rem;"></i> Checking registered account...</span>';
+
+            if (forgotCheckTimeout) clearTimeout(forgotCheckTimeout);
+            forgotCheckTimeout = setTimeout(() => {
+                const formData = new FormData();
+                formData.append('email', email);
+
+                fetch('api/check_email', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (input.value.trim().toLowerCase() !== email.toLowerCase()) return;
+
+                    if (data.status === 'registered') {
+                        // Account exists!
+                        input.classList.add('is-valid');
+                        input.classList.remove('is-invalid');
+                        feedback.innerHTML = '<span class="text-success fw-bold"><i class="bi bi-check-circle-fill me-1"></i> Registered account found. Ready to receive reset link.</span>';
+                        forgotEmailRegistered = true;
+                        if (btn) btn.disabled = false;
+                    } else if (data.status === 'available') {
+                        // NOT registered!
+                        input.classList.add('is-invalid');
+                        input.classList.remove('is-valid');
+                        feedback.innerHTML = `
+                            <div class="p-2 rounded bg-danger-subtle text-danger border border-danger-subtle fw-bold mt-1">
+                                <i class="bi bi-x-circle-fill me-1"></i> This email is <u>not registered</u> in the system.
+                                <div class="mt-1 small">
+                                    Walang account na nakakabit sa email na ito. 
+                                    <a href="./" class="text-primary text-decoration-underline ms-1">Mag-register dito</a>.
+                                </div>
+                            </div>`;
+                        forgotEmailRegistered = false;
+                        if (btn) btn.disabled = true;
+                    } else if (data.status === 'invalid') {
+                        input.classList.add('is-invalid');
+                        input.classList.remove('is-valid');
+                        feedback.innerHTML = `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${data.message}</span>`;
+                        forgotEmailRegistered = false;
+                        if (btn) btn.disabled = true;
+                    }
+                })
+                .catch(err => {
+                    console.error('Email check failed:', err);
+                    feedback.innerHTML = '';
+                    if (btn) btn.disabled = false;
+                });
+            }, 350);
+        }
+
+        function validateForgotForm(e) {
+            const input = document.getElementById('emailInput');
+            const val = input ? input.value.trim() : '';
+            if (!val) {
+                alert('Please enter your registered email address.');
+                if (e) e.preventDefault();
+                return false;
+            }
+            if (input.classList.contains('is-invalid') || forgotEmailRegistered === false) {
+                alert('Cannot send reset link: The email address you entered is not registered in our health center records.');
+                if (e) e.preventDefault();
+                return false;
+            }
+            return true;
+        }
+
+        // Auto-check if value was already pre-filled (e.g. on redirect)
+        window.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('emailInput');
+            if (input && input.value.trim()) {
+                checkForgotEmail(input.value);
+            }
+        });
+    </script>
 </body>
 </html>

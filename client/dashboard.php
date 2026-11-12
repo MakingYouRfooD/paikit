@@ -40,35 +40,44 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['book_appointm
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $error = "Security token expired. Please try again.";
     } else {
-        $appointmentDate = $_POST['appointment_date'] ?? date('Y-m-d');
+        $appointmentDate = trim($_POST['appointment_date'] ?? '');
+        if (empty($appointmentDate)) {
+            $appointmentDate = date('Y-m-d');
+        }
         $complaint       = trim($_POST['complaint'] ?? 'General Outpatient Consultation');
 
-        // Check 1: Exclude Saturday (6) and Sunday (7 / 0)
-        $dayOfWeek = (int)date('N', strtotime($appointmentDate));
-        if ($dayOfWeek === 6 || $dayOfWeek === 7) {
-            $error = "No consultations on Saturdays and Sundays. The health center is open for consultations from Monday to Friday only.";
+        // Check 0: Validate format & past date
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $appointmentDate)) {
+            $error = "Mangyaring pumili ng wastong petsa (Please select a valid consultation date).";
+        } elseif ($appointmentDate < date('Y-m-d')) {
+            $error = "Hindi maaaring mag-book sa nakalipas na petsa (Cannot book for past dates). Please select today or an upcoming weekday.";
         } else {
-            // Check 2: Check weekly availability setting set by Staff/Admin
-            $stmtWk = $pdo->prepare("SELECT is_available, day_name, start_time, end_time FROM weekly_consultation_settings WHERE day_number = ?");
-            $stmtWk->execute([$dayOfWeek]);
-            $wkSetting = $stmtWk->fetch();
-
-            if ($wkSetting && !(int)$wkSetting['is_available']) {
-                $error = "No consultation scheduled on {$wkSetting['day_name']} according to the clinic weekly schedule. Please choose another day.";
+            // Check 1: Exclude Saturday (6) and Sunday (7 / 0)
+            $dayOfWeek = (int)date('N', strtotime($appointmentDate));
+            if ($dayOfWeek === 6 || $dayOfWeek === 7) {
+                $error = "No consultations on Saturdays and Sundays. The health center is open for consultations from Monday to Friday only.";
             } else {
-                try {
-                    $pdo->beginTransaction();
+                // Check 2: Check weekly availability setting set by Staff/Admin
+                $stmtWk = $pdo->prepare("SELECT is_available, day_name, start_time, end_time FROM weekly_consultation_settings WHERE day_number = ?");
+                $stmtWk->execute([$dayOfWeek]);
+                $wkSetting = $stmtWk->fetch();
 
-                    // Check if patient already has an active ticket for this date (excluding declined requests)
+                if ($wkSetting && !(int)$wkSetting['is_available']) {
+                    $error = "No consultation scheduled on {$wkSetting['day_name']} according to the clinic weekly schedule. Please choose another day.";
+                } else {
+                    // Check 3: Check if patient already has an active ticket for this date (excluding declined requests)
                     $dateStart = $appointmentDate . ' 00:00:00';
                     $dateEnd   = $appointmentDate . ' 23:59:59';
 
-                    $stmtExist = $pdo->prepare("SELECT encounter_id FROM encounters WHERE patient_id = ? AND visit_date BETWEEN ? AND ? AND queue_status IN ('Waiting', 'Serving') AND approval_status != 'Declined'");
+                    $stmtExist = $pdo->prepare("SELECT encounter_id, queue_number, approval_status FROM encounters WHERE patient_id = ? AND visit_date BETWEEN ? AND ? AND queue_status IN ('Waiting', 'Serving') AND approval_status != 'Declined' LIMIT 1");
                     $stmtExist->execute([$patientId, $dateStart, $dateEnd]);
-                    if ($stmtExist->fetch()) {
-                        $error = "You already have an active appointment or queue ticket for this date.";
+                    $existingTicket = $stmtExist->fetch();
+
+                    if ($existingTicket) {
+                        $statusText = ($existingTicket['approval_status'] === 'Pending') ? 'kasalukuyang Pending Review ng Staff' : 'Approved & Active';
+                        $error = "Mayroon ka nang appointment ticket (#{$existingTicket['queue_number']}) na {$statusText} para sa petsang ito (" . date('F j, Y', strtotime($appointmentDate)) . "). Kung nais mong baguhin o kanselahin, mangyaring i-cancel muna ang kasalukuyang ticket.";
                     } else {
-                        // Check 3: Check Doctor's availability & quota limit for this day (Doctor sets daily quota & unavailability)
+                        // Check 4: Check Doctor's availability & quota limit for this day (Doctor sets daily quota & unavailability)
                         $stmtDocSched = $pdo->prepare("SELECT is_available, max_slots, notes FROM doctor_schedules WHERE duty_date = ?");
                         $stmtDocSched->execute([$appointmentDate]);
                         $docSched = $stmtDocSched->fetch();
@@ -86,35 +95,39 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['book_appointm
                             if ($takenSlots >= $docMaxSlots) {
                                 $error = "Consultation capacity for this date has reached the physician's quota limit ({$docMaxSlots} patients). Please choose another date.";
                             } else {
-                                // Generate sequential appointment queue number for that specific date (e.g. A-001)
-                                $queueNumber = generate_queue_number($pdo, 'A', $appointmentDate);
+                                try {
+                                    $pdo->beginTransaction();
 
-                                // Insert encounter with approval_status = 'Pending' (Requires Staff Approval)
-                                $stmtEnc = $pdo->prepare("
-                                    INSERT INTO encounters (patient_id, queue_number, encounter_type, visit_date, queue_status, check_in_status, complaint, approval_status)
-                                    VALUES (?, ?, 'Appointment', ?, 'Waiting', 'Booked', ?, 'Pending')
-                                ");
-                                $stmtEnc->execute([$patientId, $queueNumber, $appointmentDate . ' ' . date('H:i:s'), $complaint]);
-                                $encounterId = $pdo->lastInsertId();
+                                    // Generate sequential appointment queue number for that specific date (e.g. A-001)
+                                    $queueNumber = generate_queue_number($pdo, 'A', $appointmentDate);
 
-                                // Generate unique transaction code
-                                $txCode = generate_transaction_code();
-                                $stmtTx = $pdo->prepare("INSERT INTO walkin_access_tokens (encounter_id, transaction_code) VALUES (?, ?)");
-                                $stmtTx->execute([$encounterId, $txCode]);
+                                    // Insert encounter with approval_status = 'Pending' (Requires Staff Approval)
+                                    $stmtEnc = $pdo->prepare("
+                                        INSERT INTO encounters (patient_id, queue_number, encounter_type, visit_date, queue_status, check_in_status, complaint, approval_status)
+                                        VALUES (?, ?, 'Appointment', ?, 'Waiting', 'Booked', ?, 'Pending')
+                                    ");
+                                    $stmtEnc->execute([$patientId, $queueNumber, $appointmentDate . ' ' . date('H:i:s'), $complaint]);
+                                    $encounterId = $pdo->lastInsertId();
 
-                                $pdo->commit();
-                                audit_log('APPOINTMENT_REQUESTED', "Patient #{$patientId} requested appointment for {$appointmentDate}. Ticket #{$queueNumber} pending Staff review.");
-                                header("Location: dashboard?msg=" . urlencode("Appointment requested successfully! Your request (Ticket #{$queueNumber}) has been submitted and is pending Staff review."));
-                                exit;
+                                    // Generate unique transaction code
+                                    $txCode = generate_transaction_code();
+                                    $stmtTx = $pdo->prepare("INSERT INTO walkin_access_tokens (encounter_id, transaction_code) VALUES (?, ?)");
+                                    $stmtTx->execute([$encounterId, $txCode]);
+
+                                    $pdo->commit();
+                                    audit_log('APPOINTMENT_REQUESTED', "Patient #{$patientId} requested appointment for {$appointmentDate}. Ticket #{$queueNumber} pending Staff review.", 'Encounter', (string)$encounterId);
+                                    header("Location: dashboard?msg=" . urlencode("Appointment requested successfully! Your request (Ticket #{$queueNumber}) has been submitted and is pending Staff review."));
+                                    exit;
+                                } catch (Throwable $e) {
+                                    if ($pdo->inTransaction()) {
+                                        $pdo->rollBack();
+                                    }
+                                    error_log("Appointment booking failed: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+                                    $error = "Unable to process appointment booking at this time: " . sanitize($e->getMessage());
+                                }
                             }
                         }
                     }
-                } catch (Exception $e) {
-                    if ($pdo->inTransaction()) {
-                        $pdo->rollBack();
-                    }
-                    error_log("Appointment booking failed: " . $e->getMessage());
-                    $error = "Unable to process appointment booking at this time. Please try again.";
                 }
             }
         }
@@ -348,6 +361,12 @@ if ($activeTicket) {
         function checkApptDay(input) {
             if (!input || !input.value) return false;
             const val = input.value;
+            const todayStr = '<?= date('Y-m-d') ?>';
+            if (val < todayStr) {
+                alert('Notice: Hindi maaaring pumili ng nakalipas na petsa (Cannot select past dates). Please choose today or an upcoming weekday.');
+                input.value = todayStr;
+                return false;
+            }
             const parts = val.split('-');
             const dt = new Date(parts[0], parts[1] - 1, parts[2]);
             const day = dt.getDay(); // 0 is Sunday, 6 is Saturday
@@ -1058,8 +1077,18 @@ if ($activeTicket) {
                                         <p class="text-secondary small mb-3">
                                             Ang iyong appointment request para sa <strong><?= date('l, F j, Y', strtotime($activeTicket['visit_date'])) ?></strong> ay sinusuri na ng Staff Desk para sa daily patient quota at schedule ng doktor.
                                         </p>
-                                        <div class="p-3 bg-white rounded-3 border small text-muted">
+                                        <div class="p-3 bg-white rounded-3 border small text-muted mb-3">
                                             <i class="bi bi-bell-fill text-warning me-1"></i> Makatatanggap ka ng update sa portal at email kapag naaprubahan na ang iyong ticket pass.
+                                        </div>
+                                        <div>
+                                            <form action="dashboard" method="POST" onsubmit="return confirm('Sigurado ka bang nais mong kanselahin ang appointment request na ito?');">
+                                                <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
+                                                <input type="hidden" name="cancel_appointment" value="1">
+                                                <input type="hidden" name="encounter_id" value="<?= (int)$activeTicket['encounter_id'] ?>">
+                                                <button type="submit" class="btn btn-outline-danger btn-sm rounded-pill fw-semibold">
+                                                    <i class="bi bi-x-circle me-1"></i> I-cancel ang Request na Ito
+                                                </button>
+                                            </form>
                                         </div>
                                     </div>
                                 <?php elseif (!$isTicketToday): ?>

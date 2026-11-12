@@ -385,14 +385,14 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
                 <span class="ps-3 pe-2 text-muted">
                     <i class="bi bi-receipt-cutoff fs-5 text-primary"></i>
                 </span>
-                <input type="text" name="code" class="form-control border-0 shadow-none text-uppercase fw-bold" placeholder="Enter Walk-in Slip Code (e.g. PK-2026-DEMO12)" value="PK-2026-DEMO12" required style="font-size: 0.95rem;">
+                <input type="text" name="code" class="form-control border-0 shadow-none text-uppercase fw-bold" placeholder="Enter Your Transaction Code" required style="font-size: 0.95rem;">
                 <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold text-nowrap">
                     <i class="bi bi-search me-1"></i> View My Record
                 </button>
             </form>
         </div>
         <small class="text-white-50 d-block">
-            Walk-in patients can enter their slip reference code to immediately access digital diagnoses & e-prescriptions.
+            Enter your official transaction code to immediately access digital diagnoses & e-prescriptions.
         </small>
 
         <!-- Clinic Real-Time Overview Row -->

@@ -209,6 +209,95 @@ if (isset($_GET['ticket_id'])) {
     $stmtT->execute([$tId]);
     $ticketEncounter = $stmtT->fetch();
 }
+
+// 7. Comprehensive Activity & Audit Trail (RA 10173 Immutable Vault)
+$auditSearch = trim($_GET['audit_search'] ?? '');
+$auditAction = trim($_GET['audit_action'] ?? '');
+$auditRole   = trim($_GET['audit_role'] ?? '');
+$auditFrom   = trim($_GET['audit_from'] ?? '');
+$auditTo     = trim($_GET['audit_to'] ?? '');
+$auditPage   = max(1, (int)($_GET['audit_page'] ?? 1));
+$auditLimit  = 20;
+$auditOffset = ($auditPage - 1) * $auditLimit;
+
+$auditWhere = ["1=1"];
+$auditParams = [];
+
+if (!empty($auditSearch)) {
+    $auditWhere[] = "(
+        a.username LIKE ? OR 
+        u.full_name LIKE ? OR 
+        a.details LIKE ? OR 
+        a.entity_id LIKE ? OR 
+        a.ip_address LIKE ?
+    )";
+    $wTerm = '%' . $auditSearch . '%';
+    $auditParams[] = $wTerm;
+    $auditParams[] = $wTerm;
+    $auditParams[] = $wTerm;
+    $auditParams[] = $wTerm;
+    $auditParams[] = $wTerm;
+}
+
+if (!empty($auditAction)) {
+    $auditWhere[] = "a.action = ?";
+    $auditParams[] = $auditAction;
+}
+
+if (!empty($auditRole)) {
+    $auditWhere[] = "a.role = ?";
+    $auditParams[] = $auditRole;
+}
+
+if (!empty($auditFrom) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $auditFrom)) {
+    $auditWhere[] = "a.created_at >= ?";
+    $auditParams[] = $auditFrom . ' 00:00:00';
+}
+
+if (!empty($auditTo) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $auditTo)) {
+    $auditWhere[] = "a.created_at <= ?";
+    $auditParams[] = $auditTo . ' 23:59:59';
+}
+
+$whereClause = implode(' AND ', $auditWhere);
+
+// Total count for pagination
+$stmtAuditCount = $pdo->prepare("
+    SELECT COUNT(*) 
+    FROM audit_logs a
+    LEFT JOIN users u ON a.user_id = u.user_id
+    WHERE {$whereClause}
+");
+$stmtAuditCount->execute($auditParams);
+$auditTotalCount = (int)$stmtAuditCount->fetchColumn();
+$auditTotalPages = max(1, (int)ceil($auditTotalCount / $auditLimit));
+
+// Fetch paginated audit log rows
+$stmtAudit = $pdo->prepare("
+    SELECT 
+        a.log_id,
+        a.user_id,
+        a.username,
+        a.role,
+        a.action,
+        a.entity_type,
+        a.entity_id,
+        a.details,
+        a.changes_payload,
+        a.ip_address,
+        a.created_at,
+        u.full_name AS actor_full_name
+    FROM audit_logs a
+    LEFT JOIN users u ON a.user_id = u.user_id
+    WHERE {$whereClause}
+    ORDER BY a.created_at DESC, a.log_id DESC
+    LIMIT {$auditLimit} OFFSET {$auditOffset}
+");
+$stmtAudit->execute($auditParams);
+$auditLogs = $stmtAudit->fetchAll(PDO::FETCH_ASSOC);
+
+// Distinct actions for filter dropdown
+$distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs WHERE action IS NOT NULL AND action != '' ORDER BY action ASC")->fetchAll(PDO::FETCH_COLUMN);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -236,6 +325,84 @@ if (isset($_GET['ticket_id'])) {
             border: 2px dashed #86efac;
             border-radius: 12px;
         }
+        /* Staff Sidebar Navigation Styling */
+        .staff-sidebar-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            box-shadow: 0 4px 16px -2px rgba(22, 101, 52, 0.06);
+        }
+        .staff-sidebar-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+        .staff-sidebar-nav .nav-link {
+            border: 1px solid transparent;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 0.92rem;
+            color: #334155;
+            padding: 0.72rem 0.95rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s ease;
+            background: transparent;
+            width: 100%;
+            text-align: left;
+        }
+        .staff-sidebar-nav .nav-link:hover {
+            color: #15803d;
+            background-color: #f0fdf4;
+            border-color: #bbf7d0;
+            transform: translateX(3px);
+        }
+        .staff-sidebar-nav .nav-link.active {
+            background: linear-gradient(135deg, #15803d 0%, #166534 100%) !important;
+            color: #ffffff !important;
+            border-color: #15803d !important;
+            box-shadow: 0 4px 14px rgba(21, 128, 61, 0.25) !important;
+        }
+        .staff-sidebar-nav .nav-link.active i {
+            color: #ffffff !important;
+        }
+        .staff-sidebar-nav .nav-link.active .badge-count {
+            background-color: #ffffff !important;
+            color: #15803d !important;
+            font-weight: 700;
+        }
+        .staff-sidebar-nav .sidebar-icon {
+            font-size: 1.15rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+        }
+        .staff-sidebar-header {
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            color: #64748b;
+            padding: 0.25rem 0.5rem 0.5rem;
+        }
+        .staff-quick-status {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 0.9rem;
+        }
+        @media (max-width: 991.98px) {
+            .staff-sidebar-card.sticky-top {
+                position: static !important;
+            }
+            .staff-sidebar-nav {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 0.5rem;
+            }
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -254,15 +421,6 @@ if (isset($_GET['ticket_id'])) {
             <!-- Senior Text Toggle Button -->
             <button type="button" class="senior-toggle-btn me-1" onclick="toggleSeniorMode()" title="Toggle larger text for seniors">
                 <i class="bi bi-fonts fs-6"></i> <strong>A+</strong> Senior Text
-            </button>
-            <button type="button" class="btn btn-outline-light btn-sm d-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#smtpModal" title="Configure PHPMailer & Outgoing SMTP Server">
-                <i class="bi bi-envelope-gear text-warning"></i>
-                <span>Email & SMTP</span>
-                <?php if (empty($mailConfig['username']) || empty($mailConfig['password'])): ?>
-                    <span class="badge bg-danger rounded-pill">Setup</span>
-                <?php else: ?>
-                    <span class="badge bg-success rounded-pill">Active</span>
-                <?php endif; ?>
             </button>
             <a href="../queue_monitor" target="_blank" class="btn btn-outline-light btn-sm">
                 <i class="bi bi-display me-1 text-warning"></i> Public Queue Monitor
@@ -313,7 +471,109 @@ if (isset($_GET['ticket_id'])) {
         </div>
     <?php endif; ?>
 
-    <!-- Staff Operations Console Hero Banner -->
+    <div class="row g-4">
+        <!-- SIDEBAR NAVIGATION COLUMN -->
+        <div class="col-lg-4 col-xl-3 col-xxl-2">
+            <div class="staff-sidebar-card p-3 sticky-top" style="top: 80px; z-index: 100;">
+                <div class="staff-sidebar-header d-flex align-items-center justify-content-between mb-2">
+                    <span>TRIAGE OPERATIONS</span>
+                    <i class="bi bi-grid-fill text-muted"></i>
+                </div>
+
+                <div class="nav flex-column staff-sidebar-nav" id="staffTabs" role="tablist" aria-orientation="vertical">
+                    <!-- Tab 1: Live Triage & Queue List -->
+                    <button class="nav-link <?= $activeTab === 'queue' ? 'active' : '' ?>" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queuePane" type="button" role="tab">
+                        <span class="d-flex align-items-center gap-2">
+                            <span class="sidebar-icon"><i class="bi bi-list-task text-primary"></i></span>
+                            <span>Live Triage & Queue</span>
+                        </span>
+                        <span class="badge rounded-pill bg-light text-dark border badge-count"><?= count($interleavedWaiting) ?></span>
+                    </button>
+
+                    <!-- Tab 2: Appointment Approvals -->
+                    <button class="nav-link <?= $activeTab === 'approvals' ? 'active' : '' ?>" id="approvals-tab" data-bs-toggle="tab" data-bs-target="#approvalsPane" type="button" role="tab">
+                        <span class="d-flex align-items-center gap-2">
+                            <span class="sidebar-icon"><i class="bi bi-clipboard-check-fill text-success"></i></span>
+                            <span>Approvals</span>
+                        </span>
+                        <?php if ($pendingCount > 0): ?>
+                            <span class="badge rounded-pill bg-danger text-white badge-count"><?= $pendingCount ?></span>
+                        <?php else: ?>
+                            <span class="badge rounded-pill bg-light text-secondary border badge-count">0</span>
+                        <?php endif; ?>
+                    </button>
+
+                    <!-- Tab 3: Fast QR Check-in -->
+                    <button class="nav-link <?= $activeTab === 'checkin' ? 'active' : '' ?>" id="checkin-tab" data-bs-toggle="tab" data-bs-target="#checkinPane" type="button" role="tab">
+                        <span class="d-flex align-items-center gap-2">
+                            <span class="sidebar-icon"><i class="bi bi-qr-code-scan text-info"></i></span>
+                            <span>Fast Check-in</span>
+                        </span>
+                        <span class="badge rounded-pill bg-light text-dark border badge-count"><?= count($bookedAppointments) ?></span>
+                    </button>
+
+                    <!-- Tab 4: Walk-in Registration -->
+                    <button class="nav-link <?= $activeTab === 'register' ? 'active' : '' ?>" id="register-tab" data-bs-toggle="tab" data-bs-target="#registerPane" type="button" role="tab">
+                        <span class="d-flex align-items-center gap-2">
+                            <span class="sidebar-icon"><i class="bi bi-person-plus-fill text-warning"></i></span>
+                            <span>Walk-in Register</span>
+                        </span>
+                    </button>
+
+                    <!-- Tab 5: Weekly Consultation Schedule -->
+                    <button class="nav-link <?= $activeTab === 'schedule' ? 'active' : '' ?>" id="schedule-tab" data-bs-toggle="tab" data-bs-target="#schedulePane" type="button" role="tab">
+                        <span class="d-flex align-items-center gap-2">
+                            <span class="sidebar-icon"><i class="bi bi-calendar-week text-primary"></i></span>
+                            <span>Weekly Schedule</span>
+                        </span>
+                    </button>
+
+                    <!-- Tab 6: Personnel & Accounts -->
+                    <button class="nav-link <?= $activeTab === 'users' ? 'active' : '' ?>" id="users-tab" data-bs-toggle="tab" data-bs-target="#usersPane" type="button" role="tab">
+                        <span class="d-flex align-items-center gap-2">
+                            <span class="sidebar-icon"><i class="bi bi-person-gear text-secondary"></i></span>
+                            <span>Personnel & Accounts</span>
+                        </span>
+                        <span class="badge rounded-pill bg-light text-dark border badge-count"><?= count($personnelList) ?></span>
+                    </button>
+
+                    <!-- Tab 7: Comprehensive Activity & Audit Logs -->
+                    <button class="nav-link <?= $activeTab === 'audit' ? 'active' : '' ?>" id="audit-tab" data-bs-toggle="tab" data-bs-target="#auditPane" type="button" role="tab">
+                        <span class="d-flex align-items-center gap-2">
+                            <span class="sidebar-icon"><i class="bi bi-shield-check text-success"></i></span>
+                            <span>Audit & Activity Logs</span>
+                        </span>
+                        <span class="badge rounded-pill bg-light text-dark border badge-count"><?= number_format($auditTotalCount) ?></span>
+                    </button>
+                </div>
+
+                <!-- Quick Status Box in Sidebar -->
+                <div class="staff-quick-status mt-3">
+                    <div class="d-flex align-items-center justify-content-between mb-1">
+                        <span class="small fw-bold text-dark"><i class="bi bi-calendar3 me-1 text-primary"></i> Today</span>
+                        <span class="badge bg-success-subtle text-success small"><?= date('M j') ?></span>
+                    </div>
+                    <div class="small text-muted mb-2" style="font-size: 0.78rem;">
+                        <i class="bi bi-clock me-1"></i> <?= $schedule ? date('g:i A', strtotime($schedule['start_time'])) . ' - ' . date('g:i A', strtotime($schedule['end_time'])) : '08:00 AM - 05:00 PM' ?>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center small mb-1">
+                        <span class="text-secondary" style="font-size: 0.78rem;">Capacity:</span>
+                        <span class="fw-bold text-dark" style="font-size: 0.8rem;"><?= $slotsTaken ?> / <?= $maxSlots ?></span>
+                    </div>
+                    <div class="progress" style="height: 6px;">
+                        <?php 
+                            $quotaPercent = $maxSlots > 0 ? min(100, round(($slotsTaken / $maxSlots) * 100)) : 0;
+                            $barColor = $quotaPercent >= 90 ? 'bg-danger' : ($quotaPercent >= 70 ? 'bg-warning' : 'bg-success');
+                        ?>
+                        <div class="progress-bar <?= $barColor ?>" style="width: <?= $quotaPercent ?>%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MAIN WORKSPACE CONTENT COLUMN -->
+        <div class="col-lg-8 col-xl-9 col-xxl-10">
+            <!-- Staff Operations Console Hero Banner -->
     <div class="dash-hero mb-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
         <div>
             <div class="d-flex align-items-center gap-2 mb-1">
@@ -326,13 +586,10 @@ if (isset($_GET['ticket_id'])) {
                 Hello, <?= sanitize($user['full_name']) ?>! 📋
             </h3>
             <div class="text-secondary small">
-                Manage walk-in registrations, appointment approvals, triage vital signs, and pharmacy dispensing under RA 10173 data privacy rules.
+                Manage walk-in registrations, appointment approvals, and triage vital signs under RA 10173 data privacy rules.
             </div>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <button class="btn btn-outline-primary btn-sm rounded-pill fw-bold px-3 shadow-sm" data-bs-toggle="modal" data-bs-target="#smtpModal">
-                <i class="bi bi-envelope-gear text-warning me-1"></i> Email & SMTP
-            </button>
             <button class="btn btn-primary btn-sm rounded-pill fw-bold px-3 shadow-sm" onclick="document.getElementById('register-tab').click();">
                 <i class="bi bi-person-plus-fill me-1"></i> Register Walk-in
             </button>
@@ -346,7 +603,7 @@ if (isset($_GET['ticket_id'])) {
             <div>
                 <strong class="text-dark">Data Privacy Act of 2012 (RA 10173) Role Restriction:</strong>
                 <span class="text-muted small ms-1">
-                    Staff accounts are strictly restricted to demographic registration, triage vitals, slot management, and dispensing verification. 
+                    Staff accounts are strictly restricted to demographic registration, triage vitals, and slot management. 
                     <strong>Zero access</strong> to patient diagnostic notes and confidential clinical histories is permitted.
                 </span>
             </div>
@@ -356,7 +613,7 @@ if (isset($_GET['ticket_id'])) {
 
     <!-- Analytics & Capacity Cards -->
     <div class="row g-3 mb-4">
-        <div class="col-md-3">
+        <div class="col-xxl-3 col-xl-6 col-sm-6 col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
@@ -372,7 +629,7 @@ if (isset($_GET['ticket_id'])) {
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-xxl-3 col-xl-6 col-sm-6 col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
@@ -388,7 +645,7 @@ if (isset($_GET['ticket_id'])) {
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-xxl-3 col-xl-6 col-sm-6 col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
@@ -404,7 +661,7 @@ if (isset($_GET['ticket_id'])) {
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-xxl-3 col-xl-6 col-sm-6 col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
@@ -416,7 +673,7 @@ if (isset($_GET['ticket_id'])) {
                     </div>
                 </div>
                 <div class="stat-sub text-muted">
-                    <i class="bi bi-capsule me-1 text-primary"></i> Prescriptions: <strong><?= count($prescriptionsList) ?></strong>
+                    <i class="bi bi-clock-history me-1 text-primary"></i> Consultations today
                 </div>
             </div>
         </div>
@@ -439,49 +696,7 @@ if (isset($_GET['ticket_id'])) {
         </div>
     <?php endif; ?>
 
-    <!-- Main Workspace Tabs -->
-    <ul class="nav nav-tabs nav-tabs-modern mb-4" id="staffTabs" role="tablist">
-        <li class="nav-item">
-            <button class="nav-link <?= $activeTab === 'queue' ? 'active fw-bold' : '' ?>" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queuePane">
-                <i class="bi bi-list-task me-1"></i> Live Triage & Queue List (<?= count($interleavedWaiting) ?>)
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link <?= $activeTab === 'approvals' ? 'active fw-bold text-success' : '' ?>" id="approvals-tab" data-bs-toggle="tab" data-bs-target="#approvalsPane">
-                <i class="bi bi-clipboard-check-fill me-1"></i> Appointment Approvals
-                <?php if ($pendingCount > 0): ?>
-                    <span class="badge bg-danger rounded-pill ms-1"><?= $pendingCount ?></span>
-                <?php else: ?>
-                    <span class="badge bg-secondary-subtle text-secondary rounded-pill ms-1">0</span>
-                <?php endif; ?>
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link <?= $activeTab === 'checkin' ? 'active fw-bold text-primary' : '' ?>" id="checkin-tab" data-bs-toggle="tab" data-bs-target="#checkinPane">
-                <i class="bi bi-qr-code-scan me-1"></i> QR / 1-Click Fast Check-in (<?= count($bookedAppointments) ?>)
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link <?= $activeTab === 'register' ? 'active fw-bold' : '' ?>" id="register-tab" data-bs-toggle="tab" data-bs-target="#registerPane">
-                <i class="bi bi-person-plus-fill me-1"></i> Walk-in Registration
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link <?= $activeTab === 'schedule' ? 'active fw-bold' : '' ?>" id="schedule-tab" data-bs-toggle="tab" data-bs-target="#schedulePane">
-                <i class="bi bi-calendar-week me-1"></i> Weekly Consultation Schedule (Mon-Fri)
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link <?= $activeTab === 'pharmacy' ? 'active fw-bold' : '' ?>" id="pharmacy-tab" data-bs-toggle="tab" data-bs-target="#pharmacyPane">
-                <i class="bi bi-capsule me-1"></i> Pharmacy Dispensing Desk (<?= count($prescriptionsList) ?>)
-            </button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link <?= $activeTab === 'users' ? 'active fw-bold' : '' ?>" id="users-tab" data-bs-toggle="tab" data-bs-target="#usersPane">
-                <i class="bi bi-person-gear me-1"></i> Personnel & Accounts (<?= count($personnelList) ?>)
-            </button>
-        </li>
-    </ul>
+
 
     <div class="tab-content" id="staffTabsContent">
 
@@ -1068,10 +1283,9 @@ if (isset($_GET['ticket_id'])) {
                         <table class="table table-hover align-middle border rounded-3 overflow-hidden">
                             <thead class="table-light">
                                 <tr class="small text-muted text-uppercase">
-                                    <th style="width: 22%;">Day of Week</th>
-                                    <th style="width: 25%;">Availability Status</th>
-                                    <th style="width: 23%;">Consultation Hours</th>
-                                    <th style="width: 30%;">Remarks / Focus</th>
+                                    <th style="width: 28%;">Day of Week</th>
+                                    <th style="width: 36%;">Availability Status</th>
+                                    <th style="width: 36%;">Consultation Hours</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1097,9 +1311,6 @@ if (isset($_GET['ticket_id'])) {
                                                 <input type="time" name="end_time[<?= $dNum ?>]" class="form-control form-control-sm" value="<?= date('H:i', strtotime($wk['end_time'])) ?>">
                                             </div>
                                         </td>
-                                        <td>
-                                            <input type="text" name="remarks[<?= $dNum ?>]" class="form-control form-control-sm" value="<?= sanitize($wk['remarks']) ?>" placeholder="e.g. Outpatient Consultation, Maternal Care, etc.">
-                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
 
@@ -1114,9 +1325,7 @@ if (isset($_GET['ticket_id'])) {
                                     </td>
                                     <td>
                                         <span class="small text-muted font-monospace">--:-- - --:--</span>
-                                    </td>
-                                    <td>
-                                        <span class="small text-muted fst-italic">Health center is closed on Saturdays (No consultations)</span>
+                                        <span class="small text-muted fst-italic ms-2">(No consultations on Saturdays)</span>
                                     </td>
                                 </tr>
                                 <tr class="table-light text-muted">
@@ -1129,9 +1338,7 @@ if (isset($_GET['ticket_id'])) {
                                     </td>
                                     <td>
                                         <span class="small text-muted font-monospace">--:-- - --:--</span>
-                                    </td>
-                                    <td>
-                                        <span class="small text-muted fst-italic">Health center is closed on Sundays (No consultations)</span>
+                                        <span class="small text-muted fst-italic ms-2">(No consultations on Sundays)</span>
                                     </td>
                                 </tr>
                             </tbody>
@@ -1190,87 +1397,6 @@ if (isset($_GET['ticket_id'])) {
             </div>
         </div>
 
-        <!-- TAB 4: PHARMACY DISPENSING WINDOW -->
-        <div class="tab-pane fade <?= $activeTab === 'pharmacy' ? 'show active' : '' ?>" id="pharmacyPane">
-            <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
-                <div class="card-header bg-white py-3 px-4 border-bottom d-flex justify-content-between align-items-center">
-                    <div>
-                        <h5 class="fw-bold mb-0 text-primary">
-                            <i class="bi bi-capsule-pill text-primary me-2"></i> Pharmacy Dispensing Verification Desk
-                        </h5>
-                        <div class="text-muted small">Verify prescription fulfillment status. Clinical diagnoses remain masked for patient privacy.</div>
-                    </div>
-                    <span class="badge bg-secondary"><?= count($prescriptionsList) ?> Prescriptions Recorded</span>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
-                            <thead class="table-light small text-muted">
-                                <tr>
-                                    <th>QUEUE #</th>
-                                    <th>PATIENT</th>
-                                    <th>MOBILE</th>
-                                    <th style="width: 45%;">PRESCRIBED MEDICINES</th>
-                                    <th>DISPENSE STATUS</th>
-                                    <th class="text-end">ACTION</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php if (empty($prescriptionsList)): ?>
-                                    <tr>
-                                        <td colspan="6" class="text-center py-5 text-muted">
-                                            <i class="bi bi-capsule fs-2 d-block mb-2"></i>
-                                            No active prescriptions issued by physician yet today.
-                                        </td>
-                                    </tr>
-                                <?php else: ?>
-                                    <?php foreach ($prescriptionsList as $rx): ?>
-                                        <?php 
-                                            $meds = json_decode($rx['medication_details'], true) ?: [];
-                                            $isDispensed = ($rx['dispense_status'] === 'Dispensed');
-                                        ?>
-                                        <tr>
-                                            <td><span class="fs-6 fw-bold"><?= sanitize($rx['queue_number']) ?></span></td>
-                                            <td class="fw-bold text-dark"><?= sanitize($rx['full_name']) ?></td>
-                                            <td><?= sanitize($rx['mobile_number']) ?></td>
-                                            <td>
-                                                <ul class="list-unstyled mb-0 small">
-                                                    <?php foreach ($meds as $m): ?>
-                                                        <li class="mb-1">
-                                                            <i class="bi bi-check2 text-success me-1"></i>
-                                                            <strong><?= sanitize($m['medication'] ?? '') ?></strong> &bull;
-                                                            <span>Qty: <?= sanitize($m['quantity'] ?? '1') ?></span>
-                                                            <div class="text-muted" style="font-size: 0.75rem;"><?= sanitize($m['dosage'] ?? '') ?> (<?= sanitize($m['duration'] ?? '') ?>)</div>
-                                                        </li>
-                                                    <?php endforeach; ?>
-                                                </ul>
-                                            </td>
-                                            <td>
-                                                <span class="badge <?= $isDispensed ? 'bg-success' : 'bg-warning text-dark' ?>">
-                                                    <?= sanitize($rx['dispense_status']) ?>
-                                                </span>
-                                            </td>
-                                            <td class="text-end">
-                                                <form action="walkin_process" method="POST" class="d-inline">
-                                                    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
-                                                    <input type="hidden" name="action" value="update_dispense_status">
-                                                    <input type="hidden" name="prescription_id" value="<?= $rx['prescription_id'] ?>">
-                                                    <input type="hidden" name="status" value="<?= $isDispensed ? 'Pending' : 'Dispensed' ?>">
-                                                    <button type="submit" class="btn btn-sm <?= $isDispensed ? 'btn-outline-secondary' : 'btn-success fw-bold' ?>">
-                                                        <i class="bi <?= $isDispensed ? 'bi-arrow-counterclockwise' : 'bi-check-circle' ?> me-1"></i>
-                                                        <?= $isDispensed ? 'Mark Pending' : 'Mark Dispensed' ?>
-                                                    </button>
-                                                </form>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
 
         <!-- TAB 4: PERSONNEL & MEDICAL STAFF MANAGEMENT -->
         <div class="tab-pane fade <?= $activeTab === 'users' ? 'show active' : '' ?>" id="usersPane">
@@ -1333,8 +1459,242 @@ if (isset($_GET['ticket_id'])) {
             </div>
         </div>
 
-    </div>
-</div>
+        <!-- TAB 7: COMPREHENSIVE ACTIVITY & AUDIT LOGS -->
+        <div class="tab-pane fade <?= $activeTab === 'audit' ? 'show active' : '' ?>" id="auditPane">
+            <div class="card border-0 shadow-sm rounded-4 mb-4">
+                <div class="card-header bg-white py-3 px-4 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill fw-bold">
+                                <i class="bi bi-shield-check me-1"></i> RA 10173 Immutable Audit Vault
+                            </span>
+                            <span class="badge bg-light text-secondary border rounded-pill">
+                                Centralized Activity Interceptor
+                            </span>
+                        </div>
+                        <h4 class="fw-bold mb-0 text-dark">
+                            <i class="bi bi-journal-text text-primary me-2"></i> Clinic Activity & Audit Trail
+                        </h4>
+                        <div class="text-secondary small mt-1">
+                            Comprehensive chronological log of user logins, queue calls, triage check-ins, appointment reviews, and patient record modifications.
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-primary fs-6 px-3 py-2 rounded-pill shadow-sm">
+                            <?= number_format($auditTotalCount) ?> Total Logs
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Audit Filters Toolbar -->
+                <div class="card-body bg-light border-bottom p-3">
+                    <form action="dashboard" method="GET" id="auditFilterForm">
+                        <input type="hidden" name="tab" value="audit">
+                        <div class="row g-2 align-items-center">
+                            <!-- Action Type Filter -->
+                            <div class="col-md-6 col-lg-5">
+                                <select name="audit_action" class="form-select form-select-sm" onchange="this.form.submit()">
+                                    <option value="">All Action Types (<?= count($distinctActions) ?>)</option>
+                                    <?php foreach ($distinctActions as $act): ?>
+                                        <option value="<?= sanitize($act) ?>" <?= $auditAction === $act ? 'selected' : '' ?>>
+                                            <?= sanitize($act) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <!-- Role Filter -->
+                            <div class="col-md-4 col-lg-5">
+                                <select name="audit_role" class="form-select form-select-sm" onchange="this.form.submit()">
+                                    <option value="">All Roles</option>
+                                    <option value="Doctor" <?= $auditRole === 'Doctor' ? 'selected' : '' ?>>Doctor</option>
+                                    <option value="Staff" <?= $auditRole === 'Staff' ? 'selected' : '' ?>>Staff</option>
+                                    <option value="Client" <?= $auditRole === 'Client' ? 'selected' : '' ?>>Client</option>
+                                    <option value="Guest" <?= $auditRole === 'Guest' ? 'selected' : '' ?>>Guest</option>
+                                </select>
+                            </div>
+
+                            <!-- Reset Button -->
+                            <div class="col-md-2 col-lg-2">
+                                <a href="dashboard?tab=audit" class="btn btn-outline-secondary btn-sm rounded-pill px-3 py-1 d-inline-flex align-items-center justify-content-center gap-1 w-100" title="Reset All Filters">
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                    <span>Reset</span>
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Audit Log Records Table -->
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light small text-secondary">
+                                <tr>
+                                    <th style="width: 170px;">Timestamp</th>
+                                    <th style="width: 200px;">Actor / Identity</th>
+                                    <th style="width: 180px;">Action Type</th>
+                                    <th style="width: 160px;">Entity Affected</th>
+                                    <th>Activity Description / Scope</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if (empty($auditLogs)): ?>
+                                    <tr>
+                                        <td colspan="5" class="text-center py-5 text-muted">
+                                            <i class="bi bi-shield-x fs-1 d-block mb-2 text-secondary opacity-50"></i>
+                                            <div class="fw-bold">No Audit Log Records Found</div>
+                                            <div class="small">No events match your current search and filter criteria.</div>
+                                            <a href="dashboard?tab=audit" class="btn btn-outline-primary btn-sm rounded-pill mt-2">Clear Filters</a>
+                                        </td>
+                                    </tr>
+                                <?php else: ?>
+                                    <?php foreach ($auditLogs as $log): ?>
+                                        <?php 
+                                            // Role styling
+                                            $roleBadge = 'bg-secondary text-white';
+                                            if ($log['role'] === 'Doctor') $roleBadge = 'bg-primary text-white';
+                                            elseif ($log['role'] === 'Staff') $roleBadge = 'bg-success text-white';
+                                            elseif ($log['role'] === 'Client') $roleBadge = 'bg-info-subtle text-info border';
+
+                                            // Action styling
+                                            $actionUpper = strtoupper($log['action']);
+                                            $actionBadge = 'bg-light text-dark border';
+                                            if (str_contains($actionUpper, 'APPROVED') || str_contains($actionUpper, 'SUCCESS') || str_contains($actionUpper, 'CHECKED_IN') || str_contains($actionUpper, 'REGISTERED')) {
+                                                $actionBadge = 'bg-success-subtle text-success border border-success-subtle';
+                                            } elseif (str_contains($actionUpper, 'DECLINED') || str_contains($actionUpper, 'CANCEL') || str_contains($actionUpper, 'FAILED') || str_contains($actionUpper, 'DELETED')) {
+                                                $actionBadge = 'bg-danger-subtle text-danger border border-danger-subtle';
+                                            } elseif (str_contains($actionUpper, 'CALL') || str_contains($actionUpper, 'SERVING') || str_contains($actionUpper, 'VIEW')) {
+                                                $actionBadge = 'bg-primary-subtle text-primary border border-primary-subtle';
+                                            } elseif (str_contains($actionUpper, 'PRIORITY') || str_contains($actionUpper, 'UPDATE') || str_contains($actionUpper, 'SCHEDULE')) {
+                                                $actionBadge = 'bg-warning-subtle text-warning-emphasis border border-warning-subtle';
+                                            }
+                                        ?>
+                                        <tr>
+                                            <!-- Timestamp -->
+                                            <td class="small">
+                                                <div class="fw-bold text-dark"><?= date('M j, Y', strtotime($log['created_at'])) ?></div>
+                                                <div class="text-muted" style="font-size: 0.76rem;">
+                                                    <i class="bi bi-clock me-1 text-primary"></i> <?= date('h:i:s A', strtotime($log['created_at'])) ?>
+                                                </div>
+                                            </td>
+
+                                            <!-- Actor -->
+                                            <td>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <div class="rounded-circle bg-light border text-primary fw-bold d-flex align-items-center justify-content-center small" style="width: 32px; height: 32px; flex-shrink: 0;">
+                                                        <?= strtoupper(substr($log['actor_full_name'] ?: ($log['username'] ?: 'U'), 0, 1)) ?>
+                                                    </div>
+                                                    <div class="lh-sm">
+                                                        <div class="fw-bold text-dark small text-truncate" style="max-width: 140px;" title="<?= sanitize($log['actor_full_name'] ?: $log['username']) ?>">
+                                                            <?= sanitize($log['actor_full_name'] ?: $log['username']) ?>
+                                                        </div>
+                                                        <span class="badge <?= $roleBadge ?>" style="font-size: 0.68rem; padding: 2px 6px;">
+                                                            <?= sanitize($log['role']) ?>
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </td>
+
+                                            <!-- Action Type -->
+                                            <td>
+                                                <span class="badge <?= $actionBadge ?> font-monospace fw-semibold" style="font-size: 0.76rem;">
+                                                    <?= sanitize($log['action']) ?>
+                                                </span>
+                                            </td>
+
+                                            <!-- Entity Affected -->
+                                            <td>
+                                                <?php if (!empty($log['entity_type'])): ?>
+                                                    <span class="badge bg-light text-dark border font-monospace" style="font-size: 0.74rem;">
+                                                        <i class="bi bi-tag-fill text-primary me-1"></i>
+                                                        <?= sanitize($log['entity_type']) ?> #<?= sanitize($log['entity_id'] ?: '') ?>
+                                                    </span>
+                                                <?php else: ?>
+                                                    <span class="text-muted small">--</span>
+                                                <?php endif; ?>
+                                            </td>
+
+                                            <!-- Details -->
+                                            <td>
+                                                <div class="small text-dark" style="word-break: break-word;">
+                                                    <?= sanitize($log['details']) ?>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Pagination Footer -->
+                <?php if ($auditTotalPages > 1): ?>
+                    <?php 
+                        $queryParams = [
+                            'tab'          => 'audit',
+                            'audit_search' => $auditSearch,
+                            'audit_action' => $auditAction,
+                            'audit_role'   => $auditRole,
+                            'audit_from'   => $auditFrom,
+                            'audit_to'     => $auditTo
+                        ];
+                        $buildPageUrl = function($pageNum) use ($queryParams) {
+                            $p = $queryParams;
+                            $p['audit_page'] = $pageNum;
+                            return 'dashboard?' . http_build_query($p);
+                        };
+                    ?>
+                    <div class="card-footer bg-white py-3 px-4 border-top d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div class="small text-muted">
+                            Showing <strong><?= min($auditTotalCount, $auditOffset + 1) ?></strong> to <strong><?= min($auditTotalCount, $auditOffset + count($auditLogs)) ?></strong> of <strong><?= number_format($auditTotalCount) ?></strong> audit events
+                        </div>
+                        <nav aria-label="Audit Log Pagination">
+                            <ul class="pagination pagination-sm mb-0">
+                                <!-- First & Prev -->
+                                <li class="page-item <?= $auditPage <= 1 ? 'disabled' : '' ?>">
+                                    <a class="page-link" href="<?= $buildPageUrl(1) ?>" title="First Page">&laquo;</a>
+                                </li>
+                                <li class="page-item <?= $auditPage <= 1 ? 'disabled' : '' ?>">
+                                    <a class="page-link" href="<?= $buildPageUrl($auditPage - 1) ?>">Prev</a>
+                                </li>
+
+                                <!-- Numeric Page Numbers (Window of 5) -->
+                                <?php 
+                                    $startPage = max(1, $auditPage - 2);
+                                    $endPage = min($auditTotalPages, $auditPage + 2);
+                                    if ($startPage > 1) {
+                                        echo '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                                    }
+                                    for ($p = $startPage; $p <= $endPage; $p++):
+                                ?>
+                                    <li class="page-item <?= $p === $auditPage ? 'active' : '' ?>">
+                                        <a class="page-link" href="<?= $buildPageUrl($p) ?>"><?= $p ?></a>
+                                    </li>
+                                <?php endfor; ?>
+                                <?php if ($endPage < $auditTotalPages): ?>
+                                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                                <?php endif; ?>
+
+                                <!-- Next & Last -->
+                                <li class="page-item <?= $auditPage >= $auditTotalPages ? 'disabled' : '' ?>">
+                                    <a class="page-link" href="<?= $buildPageUrl($auditPage + 1) ?>">Next</a>
+                                </li>
+                                <li class="page-item <?= $auditPage >= $auditTotalPages ? 'disabled' : '' ?>">
+                                    <a class="page-link" href="<?= $buildPageUrl($auditTotalPages) ?>" title="Last Page">&raquo;</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        </div><!-- End tab-content -->
+        </div><!-- End col-lg-9 col-xxl-10 (Main Content) -->
+    </div><!-- End row g-4 -->
+</div><!-- End container-fluid my-4 -->
 
 <!-- Modal: Create Doctor or Staff Account -->
 <div class="modal fade" id="createPersonnelModal" tabindex="-1" aria-labelledby="createPersonnelModalLabel" aria-hidden="true">
@@ -1470,110 +1830,6 @@ if (isset($_GET['ticket_id'])) {
     </script>
 <?php endif; ?>
 
-<!-- Email & SMTP Configuration Modal -->
-<div class="modal fade" id="smtpModal" tabindex="-1" aria-labelledby="smtpModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
-            <div class="modal-header bg-primary text-white py-3">
-                <h5 class="modal-title fw-bold" id="smtpModalLabel">
-                    <i class="bi bi-envelope-gear me-2"></i> PHPMailer & Outgoing SMTP Configuration
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-4">
-                <!-- Info Alert -->
-                <div class="alert alert-primary-subtle text-primary border border-primary small mb-3">
-                    <i class="bi bi-info-circle-fill me-1"></i>
-                    Configure your outgoing email server (Gmail, Yahoo, or Custom SMTP). This enables real email delivery for password reset links and official clinic notices.
-                </div>
-
-                <!-- Google App Password Quick Guide -->
-                <div class="card border rounded-3 p-3 bg-light mb-4">
-                    <div class="d-flex align-items-center justify-content-between mb-2">
-                        <strong class="text-dark small"><i class="bi bi-google me-1 text-danger"></i> How to use Gmail SMTP:</strong>
-                        <a href="https://myaccount.google.com/apppasswords" target="_blank" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 0.75rem;">
-                            <i class="bi bi-box-arrow-up-right me-1"></i> Open Google App Passwords
-                        </a>
-                    </div>
-                    <ol class="small text-muted mb-0 ps-3" style="font-size: 0.8rem; line-height: 1.5;">
-                        <li>Go to your <strong>Google Account Security</strong> settings and ensure <strong>2-Step Verification</strong> is ON.</li>
-                        <li>Search for <strong>"App Passwords"</strong> (or visit the button above).</li>
-                        <li>Create a new App Password named <em>"Paikit Health Center"</em>.</li>
-                        <li>Copy the generated <strong>16-letter password</strong> and paste it into the <em>SMTP Password</em> field below.</li>
-                    </ol>
-                </div>
-
-                <!-- Configuration Form -->
-                <form action="walkin_process" method="POST">
-                    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
-                    <input type="hidden" name="action" value="save_smtp_settings">
-
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-8">
-                            <label class="form-label fw-bold small">SMTP Server Host</label>
-                            <input type="text" name="smtp_host" class="form-control" value="<?= sanitize($mailConfig['host'] ?? 'smtp.gmail.com') ?>" required placeholder="e.g. smtp.gmail.com">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold small">Port</label>
-                            <input type="number" name="smtp_port" class="form-control" value="<?= (int)($mailConfig['port'] ?? 587) ?>" required placeholder="587">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold small">SMTP Email / Username</label>
-                            <input type="email" name="smtp_username" class="form-control" value="<?= sanitize($mailConfig['username'] ?? '') ?>" required placeholder="e.g. paikithealthcenter@gmail.com">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold small">SMTP Password / 16-Letter App Password</label>
-                            <div class="input-group">
-                                <input type="password" name="smtp_password" id="smtpPassInput" class="form-control" value="<?= sanitize($mailConfig['password'] ?? '') ?>" placeholder="Enter 16-letter App Password">
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('smtpPassInput', this)">
-                                    <i class="bi bi-eye"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold small">Encryption</label>
-                            <select name="smtp_encryption" class="form-select">
-                                <option value="tls" <?= ($mailConfig['encryption'] ?? 'tls') === 'tls' ? 'selected' : '' ?>>TLS (Port 587 - Recommended)</option>
-                                <option value="ssl" <?= ($mailConfig['encryption'] ?? 'tls') === 'ssl' ? 'selected' : '' ?>>SSL (Port 465)</option>
-                            </select>
-                        </div>
-                        <div class="col-md-8">
-                            <label class="form-label fw-bold small">Sender Display Name</label>
-                            <input type="text" name="smtp_from_name" class="form-control" value="<?= sanitize($mailConfig['from_name'] ?? 'Paikit Health Center') ?>" required placeholder="Paikit Health Center">
-                        </div>
-                    </div>
-
-                    <div class="d-flex justify-content-end mb-4">
-                        <button type="submit" class="btn btn-primary fw-bold shadow-sm">
-                            <i class="bi bi-check-circle me-1"></i> Save SMTP Settings
-                        </button>
-                    </div>
-                </form>
-
-                <!-- Test Email Section -->
-                <div class="card border rounded-3 p-3 bg-light">
-                    <h6 class="fw-bold text-dark mb-2">
-                        <i class="bi bi-send-check text-success me-1"></i> Test Real Email Delivery
-                    </h6>
-                    <p class="text-muted small mb-2" style="font-size: 0.8rem;">
-                        Send a live test email to verify that PHPMailer can successfully connect and deliver messages to inboxes.
-                    </p>
-                    <form action="walkin_process" method="POST" class="d-flex gap-2">
-                        <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
-                        <input type="hidden" name="action" value="test_smtp_email">
-                        <input type="email" name="test_email" class="form-control form-control-sm" placeholder="Enter recipient email (e.g. your personal email)" required>
-                        <button type="submit" class="btn btn-success btn-sm fw-bold text-nowrap">
-                            <i class="bi bi-send me-1"></i> Send Test Email
-                        </button>
-                    </form>
-                </div>
-            </div>
-            <div class="modal-footer bg-light py-2">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
-            </div>
-        </div>
-    </div>
-</div>
 
 <!-- Decline Appointment Modal -->
 <div class="modal fade" id="declineModal" tabindex="-1" aria-labelledby="declineModalLabel" aria-hidden="true">
@@ -1623,8 +1879,93 @@ if (isset($_GET['ticket_id'])) {
     </div>
 </div>
 
+<!-- Modal: Audit Log Payload & Changes Viewer -->
+<div class="modal fade" id="auditPayloadModal" tabindex="-1" aria-labelledby="auditPayloadModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-dark text-white p-3">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-primary px-2 py-1 rounded-pill small">JSON Diff</span>
+                    <h6 class="modal-title fw-bold mb-0" id="auditPayloadModalLabel">
+                        <i class="bi bi-file-earmark-code me-1"></i> Audit Payload & State Snapshot
+                    </h6>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4 bg-light">
+                <div class="d-flex flex-wrap justify-content-between align-items-center p-3 bg-white rounded-3 border mb-3">
+                    <div>
+                        <div class="small text-muted">Event Action:</div>
+                        <span class="badge bg-primary-subtle text-primary border font-monospace fw-bold fs-6" id="auditModalAction">ACTION</span>
+                    </div>
+                    <div>
+                        <div class="small text-muted">Entity Affected:</div>
+                        <span class="badge bg-light text-dark border font-monospace" id="auditModalEntity">Entity</span>
+                    </div>
+                    <div>
+                        <div class="small text-muted">Actor:</div>
+                        <span class="fw-bold text-dark small" id="auditModalActor">Actor Name</span>
+                    </div>
+                    <div>
+                        <div class="small text-muted">Logged At:</div>
+                        <span class="text-secondary small font-monospace" id="auditModalTime">Timestamp</span>
+                    </div>
+                </div>
+
+                <div class="position-relative">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="small fw-bold text-secondary font-monospace">Changes / State Delta Payload:</span>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 rounded-pill" onclick="copyAuditPayload()" id="copyAuditBtn">
+                            <i class="bi bi-clipboard me-1"></i> Copy JSON
+                        </button>
+                    </div>
+                    <pre class="bg-dark text-success p-3 rounded-3 shadow-sm mb-0" style="max-height: 420px; overflow-y: auto; font-size: 0.82rem; font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;"><code id="auditPayloadCode"></code></pre>
+                </div>
+            </div>
+            <div class="modal-footer bg-white p-3">
+                <button type="button" class="btn btn-secondary btn-sm rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="../js/bootstrap.bundle.min.js"></script>
 <script>
+    function openAuditPayloadModal(logId) {
+        const payloadRaw = document.getElementById('auditPayload_' + logId)?.value || '';
+        const action = document.getElementById('auditAction_' + logId)?.value || 'AUDIT_EVENT';
+        const actor = document.getElementById('auditActor_' + logId)?.value || 'System';
+        const entity = document.getElementById('auditEntity_' + logId)?.value || 'General';
+        const time = document.getElementById('auditTime_' + logId)?.value || '';
+
+        document.getElementById('auditModalAction').textContent = action;
+        document.getElementById('auditModalActor').textContent = actor;
+        document.getElementById('auditModalEntity').textContent = entity;
+        document.getElementById('auditModalTime').textContent = time;
+
+        let formatted = payloadRaw;
+        try {
+            const parsed = JSON.parse(payloadRaw);
+            formatted = JSON.stringify(parsed, null, 2);
+        } catch (e) {
+            formatted = payloadRaw;
+        }
+
+        document.getElementById('auditPayloadCode').textContent = formatted;
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('auditPayloadModal'));
+        modal.show();
+    }
+
+    function copyAuditPayload() {
+        const text = document.getElementById('auditPayloadCode').textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.getElementById('copyAuditBtn');
+            btn.innerHTML = '<i class="bi bi-check2 text-success me-1"></i> Copied!';
+            setTimeout(() => {
+                btn.innerHTML = '<i class="bi bi-clipboard me-1"></i> Copy JSON';
+            }, 2000);
+        });
+    }
     function openDeclineModal(encounterId, patientName, queueNumber, visitDate) {
         document.getElementById('declineEncounterId').value = encounterId;
         document.getElementById('declinePatientName').textContent = patientName;

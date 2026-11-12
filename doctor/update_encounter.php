@@ -34,7 +34,7 @@ if ($action === 'call_next') {
 
         // Mark previously serving patient as Completed if requested
         if (!empty($_POST['complete_previous'])) {
-            $stmtPrev = $pdo->prepare("UPDATE encounters SET queue_status = 'Completed' WHERE visit_date BETWEEN ? AND ? AND queue_status = 'Serving'");
+            $stmtPrev = $pdo->prepare("UPDATE encounters SET queue_status = 'Completed', completed_at = NOW() WHERE visit_date BETWEEN ? AND ? AND queue_status = 'Serving'");
             $stmtPrev->execute([$todayStart, $todayEnd]);
         }
 
@@ -42,7 +42,19 @@ if ($action === 'call_next') {
         $stmtUpdate->execute([$nextPatient['encounter_id']]);
 
         $typeDesc = !empty($nextPatient['is_priority']) ? "Priority ({$nextPatient['priority_reason']})" : $nextPatient['encounter_type'];
-        audit_log('CALL_NEXT_PATIENT', "Doctor called Ticket #{$nextPatient['queue_number']} ({$typeDesc}, {$nextPatient['full_name']}) to Serving.");
+        audit_log(
+            'CALL_NEXT_PATIENT', 
+            "Doctor called Ticket #{$nextPatient['queue_number']} ({$typeDesc}, {$nextPatient['full_name']}) to Serving.",
+            'Encounter',
+            (string)$nextPatient['encounter_id'],
+            [
+                'patient_id'   => (int)$nextPatient['patient_id'],
+                'patient_name' => $nextPatient['full_name'],
+                'queue_number' => $nextPatient['queue_number'],
+                'queue_status' => ['old' => 'Waiting', 'new' => 'Serving'],
+                'type'         => $typeDesc
+            ]
+        );
         header("Location: dashboard?encounter_id={$nextPatient['encounter_id']}&msg=" . urlencode("Now serving Ticket #{$nextPatient['queue_number']} - {$nextPatient['full_name']} ({$typeDesc})."));
         exit;
     } else {
@@ -64,7 +76,18 @@ if ($action === 'toggle_priority') {
             $stmtUp = $pdo->prepare("UPDATE encounters SET is_priority = ?, priority_reason = ? WHERE encounter_id = ?");
             $stmtUp->execute([$newPri, $newPri ? $reason : null, $encounterId]);
             $statusText = $newPri ? "marked as Priority ({$reason})" : "reverted to Regular";
-            audit_log('TOGGLE_PRIORITY', "Doctor changed Ticket #{$row['queue_number']} to {$statusText}.");
+            audit_log(
+                'TOGGLE_PRIORITY', 
+                "Doctor changed Ticket #{$row['queue_number']} to {$statusText}.",
+                'Encounter',
+                (string)$encounterId,
+                [
+                    'encounter_id' => $encounterId,
+                    'queue_number' => $row['queue_number'],
+                    'priority'     => ['old' => (bool)$row['is_priority'], 'new' => (bool)$newPri],
+                    'reason'       => $newPri ? $reason : null
+                ]
+            );
             header("Location: dashboard?encounter_id={$encounterId}&msg=" . urlencode("Ticket #{$row['queue_number']} has been successfully {$statusText}!"));
             exit;
         }
@@ -194,12 +217,21 @@ if ($action === 'remove_unavailability') {
 // ACTION 3: SAVE CLINICAL ENCOUNTER, VITALS, DIAGNOSIS, AND E-PRESCRIPTIONS
 if ($action === 'save_encounter') {
     $encounterId = (int)($_POST['encounter_id'] ?? 0);
-    $queueStatus = $_POST['queue_status'] ?? 'Serving';
     $complaint   = trim($_POST['complaint'] ?? '');
 
     if ($encounterId <= 0) {
         header("Location: dashboard?error=" . urlencode("Invalid consultation encounter ID."));
         exit;
+    }
+
+    $isCallNext = isset($_POST['save_and_call_next']);
+    $isSaveOnly = isset($_POST['save_only']);
+
+    // When either Save Progress or Complete & Call Next is clicked,
+    // the current consultation is finished and closed.
+    $queueStatus = 'Completed';
+    if (!empty($_POST['queue_status']) && $_POST['queue_status'] === 'Cancelled') {
+        $queueStatus = 'Cancelled';
     }
 
     // Vitals Encoding
@@ -219,10 +251,10 @@ if ($action === 'save_encounter') {
     // Update Encounter
     $stmtEnc = $pdo->prepare("
         UPDATE encounters 
-        SET queue_status = ?, complaint = ?, vital_signs = ?, diagnostic_notes = ? 
+        SET queue_status = ?, completed_at = IF(? = 'Completed', NOW(), completed_at), complaint = ?, vital_signs = ?, diagnostic_notes = ? 
         WHERE encounter_id = ?
     ");
-    $stmtEnc->execute([$queueStatus, $complaint, $vitalsJson, $diagAssessment, $encounterId]);
+    $stmtEnc->execute([$queueStatus, $queueStatus, $complaint, $vitalsJson, $diagAssessment, $encounterId]);
 
     // Process E-Prescriptions
     $medNames = $_POST['med_name'] ?? [];
@@ -270,13 +302,60 @@ if ($action === 'save_encounter') {
         $pdo->prepare("INSERT INTO walkin_access_tokens (encounter_id, transaction_code) VALUES (?, ?)")->execute([$encounterId, $token]);
     }
 
-    audit_log('ENCOUNTER_RECORD_UPDATED', "Doctor saved clinical notes & e-prescription for Encounter #{$encounterId} (Status: {$queueStatus}).");
+    audit_log(
+        'ENCOUNTER_RECORD_UPDATED', 
+        "Doctor finalized clinical notes & e-prescription for Encounter #{$encounterId} (Status: {$queueStatus}).",
+        'Encounter',
+        (string)$encounterId,
+        [
+            'encounter_id'    => $encounterId,
+            'queue_status'    => $queueStatus,
+            'complaint'       => $complaint,
+            'vital_signs'     => $vitals,
+            'rx_items_count'  => count($prescriptionItems),
+            'has_prescription'=> !empty($prescriptionItems)
+        ]
+    );
 
-    $msg = ($queueStatus === 'Completed') 
-        ? "Consultation completed! Electronic prescription and clinical record finalized."
-        : "Clinical encounter details and vitals saved successfully.";
+    // If Complete & Call Next Patient was clicked
+    if ($isCallNext) {
+        $todayStart = date('Y-m-d 00:00:00');
+        $todayEnd   = date('Y-m-d 23:59:59');
+        $interleavedQueue = get_interleaved_queue($pdo, $todayStart, $todayEnd);
 
-    header("Location: dashboard?encounter_id={$encounterId}&msg=" . urlencode($msg));
+        // Exclude current encounter just completed
+        $remainingQueue = array_values(array_filter($interleavedQueue, fn($item) => (int)$item['encounter_id'] !== $encounterId));
+
+        if (!empty($remainingQueue)) {
+            $nextPatient = $remainingQueue[0];
+            $stmtUpdate = $pdo->prepare("UPDATE encounters SET queue_status = 'Serving' WHERE encounter_id = ?");
+            $stmtUpdate->execute([$nextPatient['encounter_id']]);
+
+            $typeDesc = !empty($nextPatient['is_priority']) ? "Priority ({$nextPatient['priority_reason']})" : $nextPatient['encounter_type'];
+            audit_log(
+                'CALL_NEXT_PATIENT', 
+                "Doctor completed Encounter #{$encounterId} and called Ticket #{$nextPatient['queue_number']} ({$typeDesc}, {$nextPatient['full_name']}) to Serving.",
+                'Encounter',
+                (string)$nextPatient['encounter_id'],
+                [
+                    'patient_id'   => (int)$nextPatient['patient_id'],
+                    'patient_name' => $nextPatient['full_name'],
+                    'queue_number' => $nextPatient['queue_number'],
+                    'queue_status' => ['old' => 'Waiting', 'new' => 'Serving'],
+                    'type'         => $typeDesc
+                ]
+            );
+
+            header("Location: dashboard?encounter_id={$nextPatient['encounter_id']}&msg=" . urlencode("Consultation completed! Now serving Ticket #{$nextPatient['queue_number']} - {$nextPatient['full_name']} ({$typeDesc})."));
+            exit;
+        } else {
+            header("Location: dashboard?msg=" . urlencode("Consultation completed! No more arrived patients waiting in line."));
+            exit;
+        }
+    }
+
+    // Save Progress: clear consultation room by redirecting to dashboard without encounter_id
+    header("Location: dashboard?msg=" . urlencode("Consultation completed and saved successfully!"));
     exit;
 }
 

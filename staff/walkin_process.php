@@ -134,7 +134,20 @@ if ($action === 'register_walkin') {
 
         $pdo->commit();
 
-        audit_log('WALKIN_REGISTERED', "Staff registered walk-in ticket {$queueNumber} for Mobile {$mobile} ({$linkedStatus}). Encounter ID: {$encounterId}.");
+        audit_log(
+            'WALKIN_REGISTERED', 
+            "Staff registered walk-in ticket {$queueNumber} for {$fullName} (Mobile: {$mobile}, {$linkedStatus}). Encounter ID: {$encounterId}.",
+            'Encounter',
+            (string)$encounterId,
+            [
+                'patient_id'       => $patientId,
+                'patient_name'     => $fullName,
+                'queue_number'     => $queueNumber,
+                'encounter_type'   => 'Walk-in',
+                'registration'     => $linkedStatus,
+                'transaction_code' => $transactionCode
+            ]
+        );
 
         header("Location: dashboard?ticket_id={$encounterId}&print=1&msg=" . urlencode("Walk-in ticket {$queueNumber} generated successfully! {$linkedStatus}."));
         exit;
@@ -173,20 +186,18 @@ if ($action === 'update_weekly_schedule') {
     $availableDays = $_POST['available_days'] ?? []; // Array of day numbers: 1 to 5
     $startTimes    = $_POST['start_time'] ?? [];
     $endTimes      = $_POST['end_time'] ?? [];
-    $remarks       = $_POST['remarks'] ?? [];
 
     for ($d = 1; $d <= 5; $d++) {
         $isAvail = in_array((string)$d, $availableDays, true) ? 1 : 0;
         $start   = !empty($startTimes[$d]) ? $startTimes[$d] : '08:00:00';
         $end     = !empty($endTimes[$d]) ? $endTimes[$d] : '17:00:00';
-        $rem     = trim($remarks[$d] ?? 'Regular Outpatient Consultation');
 
         $stmtUp = $pdo->prepare("
             UPDATE weekly_consultation_settings 
-            SET is_available = ?, start_time = ?, end_time = ?, remarks = ? 
+            SET is_available = ?, start_time = ?, end_time = ? 
             WHERE day_number = ?
         ");
-        $stmtUp->execute([$isAvail, $start, $end, $rem, $d]);
+        $stmtUp->execute([$isAvail, $start, $end, $d]);
     }
 
     audit_log('WEEKLY_SCHEDULE_UPDATED', "Staff/Admin updated weekly consultation schedule (Mon-Fri only, weekends excluded).");
@@ -243,7 +254,19 @@ if ($action === 'create_user') {
     $stmtInsert->execute([$username, $email, $fullName, $passwordHash, $role]);
     $newUserId = $pdo->lastInsertId();
 
-    audit_log('PERSONNEL_ACCOUNT_CREATED', "Staff created {$role} account '{$email}' / '{$username}' for {$fullName} (User ID {$newUserId}).");
+    audit_log(
+        'PERSONNEL_ACCOUNT_CREATED', 
+        "Staff created {$role} account '{$email}' / '{$username}' for {$fullName} (User ID {$newUserId}).",
+        'User',
+        (string)$newUserId,
+        [
+            'user_id'   => (int)$newUserId,
+            'username'  => $username,
+            'full_name' => $fullName,
+            'email'     => $email,
+            'role'      => $role
+        ]
+    );
     header("Location: dashboard?tab=users&msg=" . urlencode("{$role} account for '{$fullName}' ({$email}) created successfully!"));
     exit;
 }
@@ -309,7 +332,20 @@ if ($action === 'checkin_appointment') {
         $stmtUpdate->execute([$isPriority, $isPriority, $priReason, $target['encounter_id']]);
 
         $priMsg = $isPriority ? " (Priority: {$priReason})" : "";
-        audit_log('APPOINTMENT_CHECKED_IN', "Staff marked Ticket #{$target['queue_number']} ({$target['full_name']}) as Arrived{$priMsg}.");
+        audit_log(
+            'APPOINTMENT_CHECKED_IN', 
+            "Staff marked Ticket #{$target['queue_number']} ({$target['full_name']}) as Arrived{$priMsg}.",
+            'Encounter',
+            (string)$target['encounter_id'],
+            [
+                'patient_id'    => (int)$target['patient_id'],
+                'patient_name'  => $target['full_name'],
+                'queue_number'  => $target['queue_number'],
+                'check_in'      => ['old' => 'Booked', 'new' => 'Arrived'],
+                'is_priority'   => (bool)$isPriority,
+                'priority_note' => $isPriority ? $priReason : null
+            ]
+        );
         header("Location: dashboard?tab=checkin&msg=" . urlencode("{$target['full_name']} (Ticket #{$target['queue_number']}) has been marked as 'Arrived'! Added to the Doctor's active calling queue."));
         exit;
     } else {
@@ -331,7 +367,18 @@ if ($action === 'toggle_priority') {
             $stmtUp = $pdo->prepare("UPDATE encounters SET is_priority = ?, priority_reason = ? WHERE encounter_id = ?");
             $stmtUp->execute([$newPri, $newPri ? $reason : null, $encounterId]);
             $statusText = $newPri ? "marked as Priority ({$reason})" : "reverted to Regular";
-            audit_log('TOGGLE_PRIORITY_STAFF', "Staff changed Ticket #{$row['queue_number']} to {$statusText}.");
+            audit_log(
+                'TOGGLE_PRIORITY_STAFF', 
+                "Staff changed Ticket #{$row['queue_number']} to {$statusText}.",
+                'Encounter',
+                (string)$encounterId,
+                [
+                    'encounter_id' => $encounterId,
+                    'queue_number' => $row['queue_number'],
+                    'priority'     => ['old' => (bool)$row['is_priority'], 'new' => (bool)$newPri],
+                    'reason'       => $newPri ? $reason : null
+                ]
+            );
             header("Location: dashboard?tab=queue&msg=" . urlencode("Ticket #{$row['queue_number']} has been {$statusText}!"));
             exit;
         }
@@ -365,7 +412,20 @@ if ($action === 'approve_appointment') {
             ");
             $stmtUpdate->execute([$reviewerId, $encounterId]);
 
-            audit_log('APPOINTMENT_APPROVED', "Staff approved Ticket #{$target['queue_number']} for {$target['full_name']} scheduled on {$target['visit_date']}.");
+            audit_log(
+                'APPOINTMENT_APPROVED', 
+                "Staff approved Ticket #{$target['queue_number']} for {$target['full_name']} scheduled on {$target['visit_date']}.",
+                'Encounter',
+                (string)$encounterId,
+                [
+                    'encounter_id'    => $encounterId,
+                    'patient_id'      => (int)$target['patient_id'],
+                    'patient_name'    => $target['full_name'],
+                    'queue_number'    => $target['queue_number'],
+                    'visit_date'      => $target['visit_date'],
+                    'approval_status' => ['old' => 'Pending', 'new' => 'Approved']
+                ]
+            );
 
             // Dispatch notification email if patient has email
             if (!empty($target['patient_email'])) {
@@ -458,7 +518,22 @@ if ($action === 'decline_appointment') {
             ");
             $stmtUpdate->execute([$declineReason, $reviewerId, $encounterId]);
 
-            audit_log('APPOINTMENT_DECLINED', "Staff declined Ticket #{$target['queue_number']} for {$target['full_name']} (Reason: {$declineReason}).");
+            audit_log(
+                'APPOINTMENT_DECLINED', 
+                "Staff declined Ticket #{$target['queue_number']} for {$target['full_name']} (Reason: {$declineReason}).",
+                'Encounter',
+                (string)$encounterId,
+                [
+                    'encounter_id'    => $encounterId,
+                    'patient_id'      => (int)$target['patient_id'],
+                    'patient_name'    => $target['full_name'],
+                    'queue_number'    => $target['queue_number'],
+                    'visit_date'      => $target['visit_date'],
+                    'approval_status' => ['old' => 'Pending', 'new' => 'Declined'],
+                    'queue_status'    => ['old' => $target['queue_status'], 'new' => 'Cancelled'],
+                    'decline_reason'  => $declineReason
+                ]
+            );
 
             // Dispatch notification email if patient has email
             if (!empty($target['patient_email'])) {
@@ -538,7 +613,7 @@ if ($action === 'save_smtp_settings') {
     }
 
     audit_log('SMTP_SETTINGS_UPDATED', "Staff updated outgoing SMTP configuration (Host: {$host}, Port: {$port}, User: {$username}).");
-    header("Location: dashboard?msg=" . urlencode("Email & SMTP configuration saved successfully! PHPMailer will now use these credentials to dispatch password reset emails."));
+    header("Location: dashboard?open_settings=1&tab=smtp&msg=" . urlencode("Email & SMTP configuration saved successfully! PHPMailer will now use these credentials to dispatch password reset emails."));
     exit;
 }
 
@@ -548,7 +623,7 @@ if ($action === 'test_smtp_email') {
     $testTo = trim($_POST['test_email'] ?? '');
 
     if (empty($testTo) || !filter_var($testTo, FILTER_VALIDATE_EMAIL)) {
-        header("Location: dashboard?error=" . urlencode("Please provide a valid recipient email address for the test email."));
+        header("Location: dashboard?open_settings=1&tab=smtp&error=" . urlencode("Please provide a valid recipient email address for the test email."));
         exit;
     }
 
@@ -562,11 +637,11 @@ if ($action === 'test_smtp_email') {
 
     if ($res['success']) {
         audit_log('SMTP_TEST_SENT', "Test email sent successfully to {$testTo}.");
-        header("Location: dashboard?msg=" . urlencode("Test email successfully delivered to {$testTo}! Your PHPMailer SMTP configuration is active and working."));
+        header("Location: dashboard?open_settings=1&tab=smtp&msg=" . urlencode("Test email successfully delivered to {$testTo}! Your PHPMailer SMTP configuration is active and working."));
         exit;
     } else {
         audit_log('SMTP_TEST_FAILED', "Test email failed for {$testTo}: " . $res['error']);
-        header("Location: dashboard?error=" . urlencode("SMTP Delivery Failed: " . $res['error']));
+        header("Location: dashboard?open_settings=1&tab=smtp&error=" . urlencode("SMTP Delivery Failed: " . $res['error']));
         exit;
     }
 }

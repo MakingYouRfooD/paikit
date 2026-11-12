@@ -59,21 +59,22 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
         ];
     }
 
-    // Completed recently
+    // Completed recently - strictly on this exact day (CURDATE)
     $stmtCompleted = $pdo->prepare("
-        SELECT e.queue_number, p.full_name
+        SELECT e.queue_number, MAX(COALESCE(e.completed_at, e.visit_date)) as consult_time
         FROM encounters e
-        JOIN patients p ON e.patient_id = p.patient_id
-        WHERE e.visit_date BETWEEN ? AND ? AND e.queue_status = 'Completed'
-        ORDER BY e.encounter_id DESC LIMIT 6
+        WHERE DATE(COALESCE(e.completed_at, e.visit_date)) = CURDATE()
+          AND e.queue_status = 'Completed'
+        GROUP BY e.queue_number
+        ORDER BY consult_time DESC
+        LIMIT 10
     ");
-    $stmtCompleted->execute([$todayStart, $todayEnd]);
+    $stmtCompleted->execute();
     $completedRows = $stmtCompleted->fetchAll();
     $completedData = [];
     foreach ($completedRows as $row) {
         $completedData[] = [
-            'queue_number' => $row['queue_number'],
-            'masked_name'  => mask_name($row['full_name'])
+            'queue_number' => $row['queue_number']
         ];
     }
 
@@ -116,7 +117,7 @@ $schedule = $stmtSched->fetch();
             box-shadow: 0 4px 20px rgba(20, 83, 45, 0.08);
         }
         .ticket-number-huge {
-            font-size: 6.8rem;
+            font-size: clamp(3.2rem, 7.5vw + 1rem, 6.8rem);
             font-weight: 900;
             color: #dc2626;
             letter-spacing: 2px;

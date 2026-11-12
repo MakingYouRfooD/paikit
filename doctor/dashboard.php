@@ -94,41 +94,28 @@ if ($selectedEncounterId > 0) {
     ");
     $stmtServing->execute([$todayStart, $todayEnd]);
     $activeEncounter = $stmtServing->fetch();
-
-    // If none serving, preview the next in line from the fair arrived queue
-    if (!$activeEncounter && $nextInLine) {
-        $stmtWaiting = $pdo->prepare("
-            SELECT e.*, p.full_name, p.mobile_number, p.birth_date, p.gender, p.sitio, p.street_address, p.account_type, t.transaction_code
-            FROM encounters e
-            JOIN patients p ON e.patient_id = p.patient_id
-            LEFT JOIN walkin_access_tokens t ON e.encounter_id = t.encounter_id
-            WHERE e.encounter_id = ?
-        ");
-        $stmtWaiting->execute([$nextInLine['encounter_id']]);
-        $activeEncounter = $stmtWaiting->fetch();
-    }
 }
 
-// Fetch Appointments Scheduled Today but Not Yet Arrived (Standby)
+// Fetch All Patients Waiting Today but Not Yet Called by Doctor (Standby)
 $stmtBooked = $pdo->prepare("
     SELECT e.*, p.full_name, p.mobile_number, p.gender, p.sitio
     FROM encounters e
     JOIN patients p ON e.patient_id = p.patient_id
-    WHERE e.visit_date BETWEEN ? AND ? AND e.queue_status = 'Waiting' AND e.check_in_status = 'Booked'
-    ORDER BY e.encounter_id ASC
+    WHERE e.visit_date BETWEEN ? AND ? AND e.queue_status = 'Waiting'
+    ORDER BY CASE WHEN e.check_in_status = 'Arrived' THEN 1 ELSE 2 END, e.is_priority DESC, e.encounter_id ASC
 ");
 $stmtBooked->execute([$todayStart, $todayEnd]);
 $bookedStandby = $stmtBooked->fetchAll();
 
-// Fetch Completed encounters for today
+// Fetch Completed encounters for today (strictly consulted on this exact day)
 $stmtCompleted = $pdo->prepare("
     SELECT e.*, p.full_name, p.mobile_number, p.gender, p.sitio
     FROM encounters e
     JOIN patients p ON e.patient_id = p.patient_id
-    WHERE e.visit_date BETWEEN ? AND ? AND e.queue_status = 'Completed'
-    ORDER BY e.encounter_id DESC
+    WHERE DATE(COALESCE(e.completed_at, e.visit_date)) = CURDATE() AND e.queue_status = 'Completed'
+    ORDER BY COALESCE(e.completed_at, e.visit_date) DESC, e.encounter_id DESC
 ");
-$stmtCompleted->execute([$todayStart, $todayEnd]);
+$stmtCompleted->execute();
 $completedQueue = $stmtCompleted->fetchAll();
 
 // Decode active encounter details
@@ -350,7 +337,7 @@ if (!empty($searchQuery)) {
 
     <!-- Top Metrics -->
     <div class="row g-3 mb-4">
-        <div class="col-md-3">
+        <div class="col-xxl-3 col-xl-6 col-sm-6 col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
@@ -366,7 +353,7 @@ if (!empty($searchQuery)) {
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-xxl-3 col-xl-6 col-sm-6 col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
@@ -384,7 +371,7 @@ if (!empty($searchQuery)) {
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-xxl-3 col-xl-6 col-sm-6 col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
@@ -400,7 +387,7 @@ if (!empty($searchQuery)) {
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-xxl-3 col-xl-6 col-sm-6 col-12">
             <div class="stat-card">
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
@@ -497,6 +484,11 @@ if (!empty($searchQuery)) {
                                     <div class="small text-muted">Transaction Code:</div>
                                     <code class="fs-6 fw-bold text-primary"><?= sanitize($activeEncounter['transaction_code'] ?: 'Auto-Generated') ?></code>
                                     <div class="small text-muted mt-1">Arrival: <?= date('h:i A', strtotime($activeEncounter['visit_date'])) ?></div>
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-primary btn-sm rounded-pill fw-bold shadow-sm px-3" onclick="openPatientHistoryModal(<?= (int)$activeEncounter['patient_id'] ?>, '<?= addslashes(sanitize($activeEncounter['full_name'])) ?>')">
+                                            <i class="bi bi-clock-history me-1"></i> Patient Medical History
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -517,13 +509,18 @@ if (!empty($searchQuery)) {
 
                             <!-- Clinical Triage & Vital Signs Examination (Solo Doctor Exclusive) -->
                             <div class="card border-primary-subtle bg-light p-3 rounded-3 mb-4 shadow-sm">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                                     <label class="form-label fw-bold text-dark mb-0 fs-6">
                                         <i class="bi bi-heart-pulse-fill text-danger me-2"></i> Clinical & Triage Vitals Examination
                                     </label>
-                                    <span class="badge bg-primary text-white">
-                                        <i class="bi bi-person-badge-fill me-1"></i> Attending Doctor Only
-                                    </span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span id="vitalsAlertBadge" class="badge bg-secondary-subtle text-secondary small px-2 py-1">
+                                            <i class="bi bi-activity me-1"></i> Awaiting Entry
+                                        </span>
+                                        <span class="badge bg-primary text-white">
+                                            <i class="bi bi-person-badge-fill me-1"></i> Attending Doctor Only
+                                        </span>
+                                    </div>
                                 </div>
                                 <div class="text-muted small mb-3">
                                     <i class="bi bi-info-circle text-primary me-1"></i>
@@ -532,12 +529,12 @@ if (!empty($searchQuery)) {
                                 <div class="row g-2">
                                     <div class="col-md-2 col-6">
                                         <label class="small fw-bold text-dark mb-1">BP (mmHg)</label>
-                                        <input type="text" name="vital_bp" class="form-control form-control-sm" placeholder="120/80" value="<?= sanitize($activeVitals['bp'] ?? '') ?>">
+                                        <input type="text" name="vital_bp" id="docBp" class="form-control form-control-sm" placeholder="120/80" value="<?= sanitize($activeVitals['bp'] ?? '') ?>" oninput="checkVitalsNormality()">
                                         <small class="text-muted" style="font-size: 0.7rem;">Blood Pressure</small>
                                     </div>
                                     <div class="col-md-2 col-6">
                                         <label class="small fw-bold text-dark mb-1">Temp (°C)</label>
-                                        <input type="text" name="vital_temp" class="form-control form-control-sm" placeholder="36.8" value="<?= sanitize($activeVitals['temp'] ?? '') ?>">
+                                        <input type="text" name="vital_temp" id="docTemp" class="form-control form-control-sm" placeholder="36.8" value="<?= sanitize($activeVitals['temp'] ?? '') ?>" oninput="checkVitalsNormality()">
                                         <small class="text-muted" style="font-size: 0.7rem;">Body Temperature</small>
                                     </div>
                                     <div class="col-md-2 col-6">
@@ -552,24 +549,24 @@ if (!empty($searchQuery)) {
                                     </div>
                                     <div class="col-md-2 col-6">
                                         <label class="small fw-bold text-dark mb-1">Pulse (bpm)</label>
-                                        <input type="text" name="vital_pulse" class="form-control form-control-sm" placeholder="78" value="<?= sanitize($activeVitals['pulse'] ?? '') ?>">
+                                        <input type="text" name="vital_pulse" id="docPulse" class="form-control form-control-sm" placeholder="78" value="<?= sanitize($activeVitals['pulse'] ?? '') ?>" oninput="checkVitalsNormality()">
                                         <small class="text-muted" style="font-size: 0.7rem;">Heart Rate</small>
                                     </div>
                                     <div class="col-md-2 col-6">
                                         <label class="small fw-bold text-dark mb-1">Resp Rate (cpm)</label>
-                                        <input type="text" name="vital_rr" class="form-control form-control-sm" placeholder="18" value="<?= sanitize($activeVitals['rr'] ?? '') ?>">
+                                        <input type="text" name="vital_rr" id="docRr" class="form-control form-control-sm" placeholder="18" value="<?= sanitize($activeVitals['rr'] ?? '') ?>">
                                         <small class="text-muted" style="font-size: 0.7rem;">Respiratory Rate</small>
                                     </div>
                                 </div>
-                                <div class="mt-2 pt-2 border-top d-flex justify-content-between align-items-center small text-muted">
+                                <div class="mt-2 pt-2 border-top d-flex justify-content-between align-items-center small text-muted flex-wrap gap-2">
                                     <span><i class="bi bi-calculator me-1"></i> Auto BMI Indicator: <strong id="docBmiResult" class="text-dark">Enter Wt & Ht</strong></span>
                                     <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i> Saved to Patient EHR History</span>
                                 </div>
                             </div>
 
-                            <!-- Diagnostic Notes (Restricted to Doctor under RA 10173) -->
+                            <!-- Diagnostic Notes (Restricted to Doctor under RA 10173) with Quick SOAP Templates -->
                             <div class="mb-4">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
                                     <label class="form-label fw-bold text-dark mb-0">
                                         <i class="bi bi-file-earmark-medical-fill me-1 text-primary"></i> Doctor's Diagnostic Assessment & Clinical Notes
                                     </label>
@@ -578,17 +575,41 @@ if (!empty($searchQuery)) {
                                     </span>
                                 </div>
                                 <div class="text-muted small mb-2">Subjective findings, physical examination, clinical diagnosis/ICD assessment, and doctor's advice.</div>
-                                <textarea name="diagnostic_notes" class="form-control" rows="5" placeholder="ASSESSMENT: Upper Respiratory Tract Infection (URTI)&#10;PHYSICAL EXAM: Pharynx hyperemic, clear breath sounds.&#10;PLAN: Increase fluids, rest, symptomatic relief."><?= sanitize($activeEncounter['diagnostic_notes'] ?? '') ?></textarea>
+                                
+                                <!-- SOAP Templates Toolbar -->
+                                <div class="p-2 mb-2 rounded-2 bg-light border d-flex align-items-center gap-1 flex-wrap">
+                                    <span class="small fw-bold text-secondary me-1"><i class="bi bi-lightning-charge-fill text-warning"></i> Quick Templates:</span>
+                                    <button type="button" class="btn btn-xs btn-outline-secondary py-1 px-2 rounded-pill small" onclick="applySoapTemplate('urti')" title="Cough, Colds, Sore Throat, Mild Fever">
+                                        <i class="bi bi-file-text me-1"></i> URTI / Colds
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-outline-secondary py-1 px-2 rounded-pill small" onclick="applySoapTemplate('hypertension')" title="Hypertension Maintenance Follow-up">
+                                        <i class="bi bi-heart-pulse me-1"></i> HTN Follow-Up
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-outline-secondary py-1 px-2 rounded-pill small" onclick="applySoapTemplate('age')" title="Acute Gastroenteritis / Diarrhea">
+                                        <i class="bi bi-capsule me-1"></i> Diarrhea / AGE
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-outline-secondary py-1 px-2 rounded-pill small" onclick="applySoapTemplate('pedia')" title="Pediatric Fever / Wellness">
+                                        <i class="bi bi-emoji-smile me-1"></i> Pedia Check
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-outline-secondary py-1 px-2 rounded-pill small" onclick="applySoapTemplate('clearance')" title="Medical / Fit to Work Clearance">
+                                        <i class="bi bi-check2-seal me-1"></i> Med Clearance
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-outline-danger py-1 px-2 rounded-pill small ms-auto" onclick="applySoapTemplate('clear')" title="Clear notes">
+                                        <i class="bi bi-eraser"></i> Clear
+                                    </button>
+                                </div>
+
+                                <textarea name="diagnostic_notes" id="docDiagNotes" class="form-control font-monospace" rows="6" style="font-size: 0.88rem;" placeholder="ASSESSMENT: Upper Respiratory Tract Infection (URTI)&#10;PHYSICAL EXAM: Pharynx hyperemic, clear breath sounds.&#10;PLAN: Increase fluids, rest, symptomatic relief."><?= sanitize($activeEncounter['diagnostic_notes'] ?? '') ?></textarea>
                             </div>
 
-                            <!-- E-Prescription Generator -->
-                            <div class="card border mb-4">
+                            <!-- E-Prescription Generator with Expanded Formulary -->
+                            <div class="card border mb-4 shadow-sm">
                                 <div class="card-header bg-light d-flex justify-content-between align-items-center py-2">
                                     <div class="fw-bold text-primary">
                                         <i class="bi bi-prescription fs-5 me-1"></i> Electronic Prescription (Rx)
                                     </div>
-                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="addMedRow()">
-                                        <i class="bi bi-plus-circle me-1"></i> Add Medication
+                                    <button type="button" class="btn btn-outline-primary btn-sm rounded-pill fw-semibold" onclick="addMedRow()">
+                                        <i class="bi bi-plus-circle me-1"></i> Add Medication Row
                                     </button>
                                 </div>
                                 <div class="card-body p-2">
@@ -652,165 +673,273 @@ if (!empty($searchQuery)) {
                                     </div>
 
                                     <!-- Quick Formulary Presets -->
-                                    <div class="mt-2 pt-2 border-top d-flex gap-2 align-items-center flex-wrap">
-                                        <span class="small text-muted">Quick Presets:</span>
-                                        <button type="button" class="btn btn-sm btn-light border" onclick="quickAddRx('Paracetamol 500mg Tablet', '1 tablet every 4 to 6 hrs as needed for fever', '3 days', '10 tablets')">+ Paracetamol</button>
-                                        <button type="button" class="btn btn-sm btn-light border" onclick="quickAddRx('Amoxicillin 500mg Capsule', '1 capsule every 8 hours after meals', '7 days', '21 capsules')">+ Amoxicillin</button>
-                                        <button type="button" class="btn btn-sm btn-light border" onclick="quickAddRx('Oral Rehydration Salts (ORS)', 'Dissolve 1 sachet in 1 liter clean drinking water; drink after each loose stool', '3 days', '6 sachets')">+ ORS</button>
-                                        <button type="button" class="btn btn-sm btn-light border" onclick="quickAddRx('Losartan 50mg Tablet', '1 tablet once daily in the morning', '30 days', '30 tablets')">+ Losartan</button>
+                                    <div class="mt-2 pt-2 border-top d-flex gap-1 align-items-center flex-wrap">
+                                        <span class="small fw-semibold text-secondary me-1"><i class="bi bi-capsule text-primary"></i> Formulary Presets:</span>
+                                        <button type="button" class="btn btn-xs btn-light border py-1 px-2 rounded-pill small" onclick="quickAddRx('Paracetamol 500mg Tablet', '1 tablet every 4 to 6 hrs as needed for fever', '3 days', '10 tablets')">+ Paracetamol</button>
+                                        <button type="button" class="btn btn-xs btn-light border py-1 px-2 rounded-pill small" onclick="quickAddRx('Amoxicillin 500mg Capsule', '1 capsule every 8 hours after meals', '7 days', '21 capsules')">+ Amoxicillin</button>
+                                        <button type="button" class="btn btn-xs btn-light border py-1 px-2 rounded-pill small" onclick="quickAddRx('Oral Rehydration Salts (ORS)', 'Dissolve 1 sachet in 1 liter clean drinking water; drink after each loose stool', '3 days', '6 sachets')">+ ORS</button>
+                                        <button type="button" class="btn btn-xs btn-light border py-1 px-2 rounded-pill small" onclick="quickAddRx('Losartan 50mg Tablet', '1 tablet once daily in the morning', '30 days', '30 tablets')">+ Losartan</button>
+                                        <button type="button" class="btn btn-xs btn-light border py-1 px-2 rounded-pill small" onclick="quickAddRx('Cetirizine 10mg Tablet', '1 tablet once daily at bedtime', '5 days', '5 tablets')">+ Cetirizine</button>
+                                        <button type="button" class="btn btn-xs btn-light border py-1 px-2 rounded-pill small" onclick="quickAddRx('Salbutamol 2mg/5mL Syrup', '1 teaspoon (5mL) every 8 hours as needed for cough/wheezing', '5 days', '1 bottle')">+ Salbutamol</button>
+                                        <button type="button" class="btn btn-xs btn-light border py-1 px-2 rounded-pill small" onclick="quickAddRx('Co-Amoxiclav 625mg Tablet', '1 tablet every 12 hours after meals', '7 days', '14 tablets')">+ Co-Amoxiclav</button>
+                                        <button type="button" class="btn btn-xs btn-light border py-1 px-2 rounded-pill small" onclick="quickAddRx('Mefenamic Acid 500mg Capsule', '1 capsule every 8 hours after meals for severe pain', '3 days', '6 capsules')">+ Mefenamic</button>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Action & Status Selection -->
-                            <div class="d-flex justify-content-between align-items-center pt-3 border-top">
-                                <div class="d-flex align-items-center gap-2">
-                                    <label class="form-label mb-0 fw-bold small text-muted">CONSULTATION OUTCOME:</label>
-                                    <select name="queue_status" class="form-select form-select-sm" style="width: 170px;">
-                                        <option value="Serving" <?= $activeEncounter['queue_status'] === 'Serving' ? 'selected' : '' ?>>Keep In Progress</option>
-                                        <option value="Completed" <?= $activeEncounter['queue_status'] === 'Completed' ? 'selected' : '' ?>>Mark Completed</option>
-                                        <option value="Cancelled" <?= $activeEncounter['queue_status'] === 'Cancelled' ? 'selected' : '' ?>>Mark Cancelled</option>
-                                    </select>
-                                </div>
+                            <!-- Consultation Outcome & Dual Action Buttons -->
+                            <div class="card bg-light border-0 p-3 rounded-3 mt-3">
+                                <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <label class="form-label mb-0 fw-bold small text-secondary">CONSULTATION OUTCOME:</label>
+                                        <select name="queue_status" class="form-select form-select-sm fw-semibold" style="width: 170px;">
+                                            <option value="Completed" <?= ($activeEncounter['queue_status'] === 'Completed' || $activeEncounter['queue_status'] === 'Serving') ? 'selected' : '' ?>>Mark Completed</option>
+                                            <option value="Cancelled" <?= $activeEncounter['queue_status'] === 'Cancelled' ? 'selected' : '' ?>>Mark Cancelled</option>
+                                            <option value="Serving">Keep In Progress</option>
+                                        </select>
+                                    </div>
 
-                                <div class="d-flex gap-2">
-                                    <button type="submit" class="btn btn-primary fw-bold px-4">
-                                        <i class="bi bi-save2-fill me-1"></i> Save Encounter & E-Prescription
-                                    </button>
+                                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                                        <button type="submit" name="save_only" value="1" class="btn btn-outline-secondary fw-semibold px-3 rounded-pill">
+                                            <i class="bi bi-save me-1"></i> Save Progress
+                                        </button>
+                                        <button type="submit" name="save_and_call_next" value="1" class="btn btn-success fw-bold px-4 rounded-pill shadow-sm">
+                                            <i class="bi bi-check-circle-fill me-1"></i> Complete & Call Next Patient <i class="bi bi-arrow-right ms-1"></i>
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        </form>
+                            </div></form>
                     <?php endif; ?>
                 </div>
             </div>
-
-            <!-- Patient Past Medical History Tab (Doctor Clearance) -->
-            <?php if ($activeEncounter && !empty($pastEncounters)): ?>
-                <div class="card border-0 shadow-sm rounded-3 mt-4">
-                    <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
-                        <h5 class="fw-bold mb-0 text-dark">
-                            <i class="bi bi-journal-medical text-primary me-2"></i> Patient Longitudinal Medical History
-                        </h5>
-                        <span class="badge bg-info-subtle text-info border">
-                            <?= count($pastEncounters) ?> Previous Consultation(s)
-                        </span>
-                    </div>
-                    <div class="card-body p-4">
-                        <?php foreach ($pastEncounters as $past): ?>
-                            <div class="timeline-item">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <strong class="text-dark">Visit on <?= date('F j, Y - g:i A', strtotime($past['visit_date'])) ?></strong>
-                                    <span class="badge bg-secondary"><?= sanitize($past['queue_number']) ?></span>
-                                </div>
-                                <div class="small text-muted mb-2">
-                                    <?php if (!empty($past['vital_signs'])): ?>
-                                        <?php $pv = json_decode($past['vital_signs'], true) ?: []; ?>
-                                        <span>BP: <strong><?= sanitize($pv['bp'] ?? 'N/A') ?></strong></span> &bull;
-                                        <span>Temp: <strong><?= sanitize($pv['temp'] ?? 'N/A') ?> °C</strong></span> &bull;
-                                        <span>Weight: <strong><?= sanitize($pv['weight'] ?? 'N/A') ?> kg</strong></span>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="p-3 bg-light rounded-2 mb-2">
-                                    <div class="fw-bold small text-primary mb-1">Doctor's Diagnosis & Notes:</div>
-                                    <div class="small text-dark" style="white-space: pre-line;"><?= sanitize($past['diagnostic_notes'] ?: 'No notes encoded.') ?></div>
-                                </div>
-                                <?php if (!empty($past['medication_details'])): ?>
-                                    <div class="small text-muted">
-                                        <i class="bi bi-capsule me-1 text-success"></i> <strong>Prescribed:</strong>
-                                        <?php 
-                                            $pm = json_decode($past['medication_details'], true) ?: [];
-                                            $medList = array_map(fn($m) => sanitize($m['medication'] ?? ''), $pm);
-                                            echo implode(', ', $medList);
-                                        ?>
-                                        (Status: <span class="badge bg-light text-dark border"><?= sanitize($past['dispense_status']) ?></span>)
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-            <?php endif; ?>
         </div>
 
         <!-- RIGHT COLUMN: TODAY'S QUEUE & PATIENT RECORD LOOKUP -->
         <div class="col-lg-4">
-            <!-- Queue List Card: Fair 2:1 Interleaved Queue & Standby Appointments -->
+            <!-- Queue Workstation Card: Interactive Tabbed Queue -->
+            <?php
+                $priorityQueue = array_values(array_filter($interleavedWaiting, fn($q) => !empty($q['is_priority'])));
+            ?>
             <div class="card border-0 shadow-sm rounded-3 mb-4">
-                <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
-                    <h5 class="fw-bold mb-0 text-dark">
-                        <i class="bi bi-list-ol text-primary me-2"></i> Clinic Queue (Fair 2:1)
-                    </h5>
-                    <span class="badge bg-primary"><?= count($interleavedWaiting) ?> Waiting</span>
-                </div>
-                <div class="card-body p-0">
-                    <div class="p-2 bg-light border-bottom small text-muted">
-                        <i class="bi bi-info-circle text-primary me-1"></i>
-                        Active Queue of <strong>Arrived</strong> Patients (Ratio: 2 Appt : 1 Walk-in; Priority First).
+                <div class="card-header bg-white py-3 border-bottom">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="fw-bold mb-0 text-dark">
+                            <i class="bi bi-hospital text-primary me-2"></i> Queue Workstation
+                        </h5>
+                        <span class="badge bg-primary px-2 py-1"><?= count($interleavedWaiting) ?> Arrived</span>
                     </div>
-                    <div class="list-group list-group-flush" style="max-height: 480px; overflow-y: auto;">
-                        <?php if (empty($interleavedWaiting)): ?>
-                            <div class="p-4 text-center text-muted small">
-                                <i class="bi bi-check2-circle fs-3 text-success d-block mb-1"></i>
-                                No patients waiting who are marked as "Arrived".
-                            </div>
-                        <?php else: ?>
-                            <?php foreach ($interleavedWaiting as $q): ?>
-                                <?php 
-                                    $isActive = ($activeEncounter && $activeEncounter['encounter_id'] == $q['encounter_id']);
-                                    $isNext = ($q['queue_position'] === 1);
-                                ?>
-                                <div class="list-group-item p-3 <?= $isActive ? 'bg-primary-subtle border-start border-primary border-4' : '' ?> <?= $isNext ? 'border-start border-warning border-3' : '' ?>">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <div>
-                                            <span class="badge <?= $isNext ? 'bg-warning text-dark' : 'bg-secondary' ?> me-1">
-                                                #<?= $q['queue_position'] ?><?= $isNext ? ' (NEXT)' : '' ?>
-                                            </span>
-                                            <a href="dashboard?encounter_id=<?= $q['encounter_id'] ?>" class="fw-bold text-dark text-decoration-none">
-                                                <?= sanitize($q['queue_number']) ?> &bull; <?= sanitize($q['full_name']) ?>
-                                            </a>
-                                        </div>
-                                        <div>
-                                            <?php if (!empty($q['is_priority'])): ?>
-                                                <span class="badge bg-danger"><i class="bi bi-lightning-fill"></i> PRIORITY</span>
-                                            <?php endif; ?>
-                                        </div>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center small text-muted">
-                                        <div>
-                                            <span class="badge <?= $q['encounter_type'] === 'Appointment' ? 'bg-info-subtle text-info border' : 'bg-primary-subtle text-primary border' ?>">
-                                                <?= sanitize($q['encounter_type']) ?>
-                                            </span>
-                                            &bull; <?= sanitize($q['gender']) ?>
-                                            <?php if (!empty($q['priority_reason'])): ?>
-                                                <span class="text-danger small">(<?= sanitize($q['priority_reason']) ?>)</span>
-                                            <?php endif; ?>
-                                        </div>
-                                        <form action="update_encounter" method="POST" class="d-inline">
-                                            <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
-                                            <input type="hidden" name="action" value="toggle_priority">
-                                            <input type="hidden" name="encounter_id" value="<?= (int)$q['encounter_id'] ?>">
-                                            <button type="submit" class="btn btn-link btn-sm text-decoration-none p-0 <?= !empty($q['is_priority']) ? 'text-danger fw-bold' : 'text-muted' ?>" title="Toggle Priority status">
-                                                <i class="bi bi-lightning-charge-fill"></i> <?= !empty($q['is_priority']) ? 'Priority' : 'Prioritize' ?>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                    <!-- Queue Filter Nav Pills -->
+                    <div class="nav nav-pills nav-fill gap-1" id="queueFilterTabs" role="tablist">
+                        <button type="button" class="nav-link active py-1 px-2 small fw-semibold" id="tab-btn-arrived" onclick="showQueueTab('arrived', this)">
+                            Arrived (<?= count($interleavedWaiting) ?>)
+                        </button>
+                        <button type="button" class="nav-link py-1 px-2 small fw-semibold text-danger" id="tab-btn-priority" onclick="showQueueTab('priority', this)">
+                            <i class="bi bi-lightning-fill"></i> (<?= count($priorityQueue) ?>)
+                        </button>
+                        <button type="button" class="nav-link py-1 px-2 small fw-semibold text-secondary" id="tab-btn-standby" onclick="showQueueTab('standby', this)">
+                            Standby (<?= count($bookedStandby) ?>)
+                        </button>
+                        <button type="button" class="nav-link py-1 px-2 small fw-semibold text-success" id="tab-btn-completed" onclick="showQueueTab('completed', this)">
+                            Done (<?= count($completedQueue) ?>)
+                        </button>
                     </div>
                 </div>
 
-                <!-- Standby Appointments (Not Yet Arrived) Accordion/Box -->
-                <?php if (!empty($bookedStandby)): ?>
-                    <div class="card-footer bg-light p-2 border-top">
-                        <div class="small fw-bold text-secondary mb-1">
-                            <i class="bi bi-clock-history me-1"></i> Awaiting Check-In (<?= count($bookedStandby) ?> Standby)
+                <div class="card-body p-0">
+                    <!-- PANE 1: ARRIVED (FAIR 2:1 INTERLEAVED QUEUE) -->
+                    <div id="queuePaneArrived" class="queue-tab-pane">
+                        <div class="p-2 bg-light border-bottom small text-muted d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-info-circle text-primary me-1"></i> Arrived Patients (Fair 2 Appt : 1 Walk-in)</span>
                         </div>
-                        <div class="small text-muted" style="font-size: 0.75rem;">
-                            These patients have not yet arrived at the clinic. They will appear in the call list once marked as "Arrived" by Staff.
+                        <div class="list-group list-group-flush" style="max-height: 480px; overflow-y: auto;">
+                            <?php if (empty($interleavedWaiting)): ?>
+                                <div class="p-4 text-center text-muted small">
+                                    <i class="bi bi-check2-circle fs-3 text-success d-block mb-1"></i>
+                                    No patients waiting who are marked as "Arrived".
+                                </div>
+                            <?php else: ?>
+                                <?php foreach ($interleavedWaiting as $q): ?>
+                                    <?php 
+                                        $isActive = ($activeEncounter && $activeEncounter['encounter_id'] == $q['encounter_id']);
+                                        $isNext = ($q['queue_position'] === 1);
+                                    ?>
+                                    <div class="list-group-item p-3 <?= $isActive ? 'bg-primary-subtle border-start border-primary border-4' : '' ?> <?= $isNext ? 'border-start border-warning border-3' : '' ?>">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <div>
+                                                <span class="badge <?= $isNext ? 'bg-warning text-dark' : 'bg-secondary' ?> me-1">
+                                                    #<?= $q['queue_position'] ?><?= $isNext ? ' (NEXT)' : '' ?>
+                                                </span>
+                                                <a href="dashboard?encounter_id=<?= $q['encounter_id'] ?>" class="fw-bold text-dark text-decoration-none">
+                                                    <?= sanitize($q['queue_number']) ?> &bull; <?= sanitize($q['full_name']) ?>
+                                                </a>
+                                            </div>
+                                            <div>
+                                                <?php if (!empty($q['is_priority'])): ?>
+                                                    <span class="badge bg-danger"><i class="bi bi-lightning-fill"></i> PRIORITY</span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center small text-muted">
+                                            <div>
+                                                <span class="badge <?= $q['encounter_type'] === 'Appointment' ? 'bg-info-subtle text-info border' : 'bg-primary-subtle text-primary border' ?>">
+                                                    <?= sanitize($q['encounter_type']) ?>
+                                                </span>
+                                                &bull; <?= sanitize($q['gender']) ?>
+                                                <?php if (!empty($q['priority_reason'])): ?>
+                                                    <span class="text-danger small">(<?= sanitize($q['priority_reason']) ?>)</span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill" onclick="openPatientHistoryModal(<?= (int)$q['patient_id'] ?>, '<?= addslashes(sanitize($q['full_name'])) ?>')" title="Review complete patient history">
+                                                    <i class="bi bi-clock-history me-1"></i> History
+                                                </button>
+                                                <form action="update_encounter" method="POST" class="d-inline">
+                                                    <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
+                                                    <input type="hidden" name="action" value="toggle_priority">
+                                                    <input type="hidden" name="encounter_id" value="<?= (int)$q['encounter_id'] ?>">
+                                                    <button type="submit" class="btn btn-link btn-sm text-decoration-none p-0 <?= !empty($q['is_priority']) ? 'text-danger fw-bold' : 'text-muted' ?>" title="Toggle Priority status">
+                                                        <i class="bi bi-lightning-charge-fill"></i> <?= !empty($q['is_priority']) ? 'Priority' : 'Prioritize' ?>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </div>
                     </div>
-                <?php endif; ?>
+
+                    <!-- PANE 2: PRIORITY ONLY -->
+                    <div id="queuePanePriority" class="queue-tab-pane" style="display: none;">
+                        <div class="p-2 bg-danger-subtle border-bottom small text-danger fw-semibold">
+                            <i class="bi bi-lightning-fill me-1"></i> Express Lane: Senior Citizens, PWD, Pregnant & Urgent Cases
+                        </div>
+                        <div class="list-group list-group-flush" style="max-height: 480px; overflow-y: auto;">
+                            <?php if (empty($priorityQueue)): ?>
+                                <div class="p-4 text-center text-muted small">
+                                    <i class="bi bi-emoji-smile fs-3 text-secondary d-block mb-1"></i>
+                                    No priority patients in line at this moment.
+                                </div>
+                            <?php else: ?>
+                                <?php foreach ($priorityQueue as $q): ?>
+                                    <div class="list-group-item p-3 border-start border-danger border-4">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <div>
+                                                <span class="badge bg-danger me-1">PRIORITY</span>
+                                                <a href="dashboard?encounter_id=<?= $q['encounter_id'] ?>" class="fw-bold text-dark text-decoration-none">
+                                                    <?= sanitize($q['queue_number']) ?> &bull; <?= sanitize($q['full_name']) ?>
+                                                </a>
+                                            </div>
+                                            <a href="dashboard?encounter_id=<?= $q['encounter_id'] ?>" class="btn btn-sm btn-outline-danger py-0 px-2 rounded-pill fw-semibold">
+                                                Call Now
+                                            </a>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center small text-muted">
+                                            <div>
+                                                <span class="text-danger fw-bold"><?= sanitize($q['priority_reason'] ?: 'Priority Flagged') ?></span>
+                                                &bull; <?= sanitize($q['gender']) ?>
+                                            </div>
+                                            <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill" onclick="openPatientHistoryModal(<?= (int)$q['patient_id'] ?>, '<?= addslashes(sanitize($q['full_name'])) ?>')">
+                                                <i class="bi bi-clock-history me-1"></i> History
+                                            </button>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- PANE 3: STANDBY (NOT YET CALLED BY DOCTOR) -->
+                    <div id="queuePaneStandby" class="queue-tab-pane" style="display: none;">
+                        <div class="p-2 bg-light border-bottom small text-muted d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-hourglass-split text-warning me-1"></i> Standby (Hindi pa tinatawag ng Doktor)</span>
+                            <span class="badge bg-secondary-subtle text-dark border"><?= count($bookedStandby) ?></span>
+                        </div>
+                        <div class="list-group list-group-flush" style="max-height: 480px; overflow-y: auto;">
+                            <?php if (empty($bookedStandby)): ?>
+                                <div class="p-4 text-center text-muted small">
+                                    <i class="bi bi-check2-circle fs-3 text-success d-block mb-1"></i>
+                                    Walang pasyenteng naka-standby. Lahat ng pasyente ay natawag na o natapos na.
+                                </div>
+                            <?php else: ?>
+                                <?php foreach ($bookedStandby as $sb): ?>
+                                    <?php $isArrived = ($sb['check_in_status'] === 'Arrived'); ?>
+                                    <div class="list-group-item p-3 <?= $isArrived ? 'border-start border-warning border-3' : 'opacity-75' ?>">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <div>
+                                                <span class="badge <?= $isArrived ? 'bg-warning text-dark' : 'bg-light text-secondary border' ?> me-1">
+                                                    <?= sanitize($sb['queue_number']) ?>
+                                                </span>
+                                                <a href="dashboard?encounter_id=<?= $sb['encounter_id'] ?>" class="fw-bold text-dark text-decoration-none">
+                                                    <?= sanitize($sb['full_name']) ?>
+                                                </a>
+                                            </div>
+                                            <div class="d-flex align-items-center gap-1">
+                                                <?php if (!empty($sb['is_priority'])): ?>
+                                                    <span class="badge bg-danger"><i class="bi bi-lightning-fill"></i> PRIORITY</span>
+                                                <?php endif; ?>
+                                                <?php if ($isArrived): ?>
+                                                    <a href="dashboard?encounter_id=<?= $sb['encounter_id'] ?>" class="btn btn-sm btn-outline-warning py-0 px-2 rounded-pill fw-semibold">
+                                                        Call Now
+                                                    </a>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center small text-muted">
+                                            <div>
+                                                <span class="badge <?= $isArrived ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-light text-secondary border' ?>">
+                                                    <?= $isArrived ? 'Arrived / In Waiting Area' : 'Booked (Awaiting Arrival)' ?>
+                                                </span>
+                                                &bull; <?= sanitize($sb['encounter_type']) ?> &bull; <?= sanitize($sb['gender']) ?>
+                                                <?php if (!empty($sb['priority_reason'])): ?>
+                                                    <span class="text-danger small">(<?= sanitize($sb['priority_reason']) ?>)</span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill" onclick="openPatientHistoryModal(<?= (int)$sb['patient_id'] ?>, '<?= addslashes(sanitize($sb['full_name'])) ?>')">
+                                                <i class="bi bi-clock-history me-1"></i> History
+                                            </button>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- PANE 4: COMPLETED TODAY -->
+                    <div id="queuePaneCompleted" class="queue-tab-pane" style="display: none;">
+                        <div class="p-2 bg-success-subtle border-bottom small text-success fw-semibold">
+                            <i class="bi bi-check-all me-1"></i> Consultations completed and documented today.
+                        </div>
+                        <div class="list-group list-group-flush" style="max-height: 480px; overflow-y: auto;">
+                            <?php if (empty($completedQueue)): ?>
+                                <div class="p-4 text-center text-muted small">
+                                    <i class="bi bi-journal-text fs-3 text-secondary d-block mb-1"></i>
+                                    No completed encounters logged today yet.
+                                </div>
+                            <?php else: ?>
+                                <?php foreach ($completedQueue as $c): ?>
+                                    <div class="list-group-item p-3">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <span class="fw-bold text-dark">
+                                                <i class="bi bi-check-circle-fill text-success me-1"></i>
+                                                <?= sanitize($c['queue_number']) ?> &bull; <?= sanitize($c['full_name']) ?>
+                                            </span>
+                                            <a href="dashboard?encounter_id=<?= $c['encounter_id'] ?>" class="btn btn-outline-secondary btn-sm py-0 px-2 rounded-pill small">
+                                                Reopen
+                                            </a>
+                                        </div>
+                                        <div class="d-flex justify-content-between align-items-center small text-muted">
+                                            <span><i class="bi bi-clock me-1"></i> <?= date('g:i A', strtotime($c['visit_date'])) ?> &bull; <?= sanitize($c['encounter_type']) ?></span>
+                                            <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill" onclick="openPatientHistoryModal(<?= (int)$c['patient_id'] ?>, '<?= addslashes(sanitize($c['full_name'])) ?>')">
+                                                <i class="bi bi-clock-history me-1"></i> History
+                                            </button>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Patient Longitudinal Search Box -->
@@ -831,11 +960,16 @@ if (!empty($searchQuery)) {
                     <?php if (!empty($searchResults)): ?>
                         <div class="list-group list-group-flush mt-2 small">
                             <?php foreach ($searchResults as $patient): ?>
-                                <div class="list-group-item p-2">
-                                    <div class="fw-bold text-dark"><?= sanitize($patient['full_name']) ?></div>
-                                    <div class="text-muted" style="font-size: 0.75rem;">
-                                        Mobile: <?= sanitize($patient['mobile_number']) ?> &bull; <?= $patient['visit_count'] ?> visits
+                                <div class="list-group-item p-2 d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="fw-bold text-dark"><?= sanitize($patient['full_name']) ?></div>
+                                        <div class="text-muted" style="font-size: 0.75rem;">
+                                            Mobile: <?= sanitize($patient['mobile_number']) ?> &bull; <?= $patient['visit_count'] ?> visits
+                                        </div>
                                     </div>
+                                    <button type="button" class="btn btn-outline-primary btn-sm py-1 px-2 rounded-pill" onclick="openPatientHistoryModal(<?= (int)$patient['patient_id'] ?>, '<?= addslashes(sanitize($patient['full_name'])) ?>')">
+                                        <i class="bi bi-clock-history me-1"></i> History
+                                    </button>
                                 </div>
                             <?php endforeach; ?>
                         </div>
@@ -843,6 +977,130 @@ if (!empty($searchQuery)) {
                         <div class="text-muted small text-center py-2">No matching patient record found.</div>
                     <?php endif; ?>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Patient Consultation & Medical History Modal (Doctor Clearance Only) -->
+<div class="modal fade" id="patientHistoryModal" tabindex="-1" aria-labelledby="patientHistoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-primary text-white py-3 px-4 d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span class="badge bg-white text-primary fw-bold px-2 py-1 rounded-pill small">
+                            <i class="bi bi-shield-lock-fill me-1"></i> Doctor Clinical Clearance
+                        </span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle fw-semibold rounded-pill small">
+                            RA 10173 HIPAA Compliant
+                        </span>
+                    </div>
+                    <h5 class="modal-title fw-bold text-white mb-0" id="patientHistoryModalLabel">
+                        <i class="bi bi-journal-medical me-2"></i> Patient Consultation & Medical History
+                    </h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <!-- Patient Profile Summary Strip -->
+            <div class="bg-light border-bottom px-4 py-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold fs-4 shadow-sm" style="width: 52px; height: 52px;" id="histPatientAvatar">
+                            P
+                        </div>
+                        <div>
+                            <div class="d-flex align-items-center gap-2">
+                                <h5 class="fw-bold text-dark mb-0" id="histPatientName">Patient Name</h5>
+                                <span class="badge bg-light text-dark border" id="histPatientAccountType">Registered Client</span>
+                            </div>
+                            <div class="small text-muted d-flex flex-wrap gap-2 align-items-center mt-1" id="histPatientMeta">
+                                <span><i class="bi bi-calendar3 me-1"></i>Age: <strong id="histPatientAge">--</strong></span> &bull;
+                                <span><i class="bi bi-gender-ambiguous me-1"></i>Gender: <strong id="histPatientGender">--</strong></span> &bull;
+                                <span><i class="bi bi-telephone me-1"></i>Mobile: <strong id="histPatientMobile">--</strong></span> &bull;
+                                <span><i class="bi bi-geo-alt me-1"></i>Address: <strong id="histPatientAddress">--</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="badge bg-primary fs-6 px-3 py-2 rounded-pill shadow-sm" id="histTotalVisitsBadge">
+                            0 Consultations
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Search & Filtering Toolbar -->
+            <div class="p-3 bg-white border-bottom shadow-sm">
+                <div class="row g-2 align-items-center">
+                    <div class="col-md-5">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-light text-primary"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" id="histFilterSearch" placeholder="Search diagnosis, complaint, prescription..." onkeydown="if(event.key==='Enter'){applyHistFilters();}">
+                            <button class="btn btn-outline-secondary" type="button" onclick="clearHistSearch()" title="Clear search"><i class="bi bi-x"></i></button>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="date" class="form-control form-control-sm" id="histFilterDateFrom" title="From Date">
+                            <span class="small text-muted">to</span>
+                            <input type="date" class="form-control form-control-sm" id="histFilterDateTo" title="To Date">
+                            <button type="button" class="btn btn-sm btn-primary px-3 rounded-pill fw-semibold" onclick="applyHistFilters()">
+                                <i class="bi bi-funnel-fill me-1"></i> Filter
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-2 text-md-end">
+                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="resetHistFilters()">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Date Filter Chips -->
+                <div class="d-flex flex-wrap gap-1 mt-2 align-items-center">
+                    <small class="text-muted fw-bold me-2"><i class="bi bi-clock-history me-1"></i>Quick Filter:</small>
+                    <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill hist-chip" onclick="setHistDateRange('all')">All Time</button>
+                    <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill hist-chip" onclick="setHistDateRange('30days')">Past 30 Days</button>
+                    <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill hist-chip" onclick="setHistDateRange('90days')">Past 3 Months</button>
+                    <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill hist-chip" onclick="setHistDateRange('year')">This Year</button>
+                </div>
+            </div>
+
+            <!-- Modal Body: Longitudinal Timeline -->
+            <div class="modal-body p-4 bg-light" style="min-height: 380px;">
+                <!-- Loading State -->
+                <div id="histLoadingState" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                        <span class="visually-hidden">Loading clinical history...</span>
+                    </div>
+                    <p class="text-muted small mt-3 fw-semibold">Decrypting and loading clinical consultation records...</p>
+                </div>
+
+                <!-- Empty State -->
+                <div id="histEmptyState" class="text-center py-5 d-none">
+                    <div class="mb-3">
+                        <span class="badge rounded-circle p-3 bg-secondary-subtle text-secondary fs-3">
+                            <i class="bi bi-file-earmark-medical"></i>
+                        </span>
+                    </div>
+                    <h6 class="fw-bold text-dark">No Consultations Found</h6>
+                    <p class="text-muted small" id="histEmptyMsg">No historical medical records match your current filter criteria.</p>
+                    <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="resetHistFilters()">Clear Filters</button>
+                </div>
+
+                <!-- Timeline Feed -->
+                <div id="histTimelineContainer" class="d-none">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+
+            <div class="modal-footer bg-white border-top py-2 px-4 d-flex justify-content-between align-items-center">
+                <small class="text-muted">
+                    <i class="bi bi-shield-check text-success me-1"></i> Clinical access logged in HIPAA / RA 10173 Audit Vault.
+                </small>
+                <button type="button" class="btn btn-secondary btn-sm rounded-pill px-4" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -953,54 +1211,6 @@ if (!empty($searchQuery)) {
                             </button>
                         </div>
                     </form>
-
-                    <!-- Configured Future Consultation Dates & Quotas Table -->
-                    <?php if (!empty($upcomingConfiguredSchedules)): ?>
-                        <div class="mt-4 pt-3 border-top">
-                            <h6 class="fw-bold text-dark mb-2">
-                                <i class="bi bi-calendar-check text-success me-1"></i> Configured Consultation Dates & Quotas
-                            </h6>
-                            <div class="table-responsive" style="max-height: 190px; overflow-y: auto;">
-                                <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85rem;">
-                                    <thead class="table-light sticky-top small text-muted">
-                                        <tr>
-                                            <th>Date</th>
-                                            <th>Quota Capacity</th>
-                                            <th>Hours</th>
-                                            <th>Notes</th>
-                                            <th class="text-end">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($upcomingConfiguredSchedules as $usc): ?>
-                                            <tr>
-                                                <td class="fw-bold <?= $usc['duty_date'] === $today ? 'text-primary' : 'text-dark' ?>">
-                                                    <?= date('M j, Y (D)', strtotime($usc['duty_date'])) ?>
-                                                    <?= $usc['duty_date'] === $today ? '<span class="badge bg-primary-subtle text-primary ms-1">Today</span>' : '' ?>
-                                                </td>
-                                                <td>
-                                                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
-                                                        <?= (int)$usc['max_slots'] ?> patients
-                                                    </span>
-                                                </td>
-                                                <td class="text-muted small">
-                                                    <?= date('g:i A', strtotime($usc['start_time'])) ?> - <?= date('g:i A', strtotime($usc['end_time'])) ?>
-                                                </td>
-                                                <td class="small text-secondary text-truncate" style="max-width: 140px;">
-                                                    <?= sanitize($usc['notes'] ?: '-') ?>
-                                                </td>
-                                                <td class="text-end">
-                                                    <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 rounded-pill" onclick="setDoctorDutyDate('<?= $usc['duty_date'] ?>')">
-                                                        <i class="bi bi-pencil me-1"></i> Load
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    <?php endif; ?>
                 </div>
 
                 <!-- TAB 2: DOCTOR UNAVAILABLE DATES (OFF-DUTY / LEAVE / CONFERENCES) -->
@@ -1255,8 +1465,422 @@ if (!empty($searchQuery)) {
             res.textContent = 'Enter Wt & Ht';
         }
     }
+    // ==========================================
+        // ==========================================
+    // CLINICAL WORKSTATION UX ENHANCEMENTS
+    // ==========================================
+    const SOAP_TEMPLATES = {
+        urti: `S: Patient complains of cough, runny nose, and sore throat for 3 days. Occasional low-grade fever, mild headache. Denies dyspnea, chest pain, or wheezing.
+O: Alert, ambulatory, non-toxic. Pharynx mildly hyperemic, tonsils non-hypertrophic, no exudates. Chest: Clear breath sounds bilaterally, no adventitious sounds.
+A: Upper Respiratory Tract Infection (URTI) / Acute Nasopharyngitis
+P: Symptomatic relief. High oral fluid intake (>2L water/day), warm saltwater gargle, rest. Paracetamol 500mg PRN for fever/pain. Cetirizine 10mg OD HS. Return if high fever persists >3 days or difficulty breathing develops.`,
+
+        hypertension: `S: Routine follow-up for maintenance. Compliant with prescribed medications. Denies severe headache, dizziness, blurry vision, palpitations, chest pain, or dyspnea.
+O: Conscious, coherent, comfortable. Heart: Normal rate, regular rhythm, normal S1/S2, no murmurs. Lungs: Clear. No bilateral lower extremity edema.
+A: Essential Primary Hypertension, Stable / Controlled
+P: Continue maintenance antihypertensive therapy (e.g. Losartan 50mg OD). Emphasize DASH diet (low sodium, low saturated fat), avoid smoking/alcohol, 30 mins brisk walking daily. Home BP monitoring log. Next routine follow-up in 1 month.`,
+
+        age: `S: Patient presents with watery/loose stools (3-4 episodes today) accompanied by mild crampy abdominal discomfort and nausea. No hematochezia or melena. Tolerating liquids.
+O: Moderately moist oral mucosa, good skin turgor. Abdomen: Soft, non-tender, normoactive to slightly hyperactive bowel sounds, no peritoneal signs.
+A: Acute Gastroenteritis (AGE) with Mild / No Signs of Dehydration
+P: Fluid resuscitation with Oral Rehydration Salts (ORS) - 1 sachet per loose stool. Zinc sulfate supplement. BRAT diet (banana, rice, applesauce, toast). Warning signs explained: lethargy, persistent vomiting, blood in stool, high fever.`,
+
+        pedia: `S: Brought by parent for warm body/fever for 1 day. Child remains playful, drinking milk/water well, no seizures, no vomiting, no cyanosis.
+O: Alert, active, flushed cheeks. Anterior fontanelle flat (if infant). Clear rhinorrhea, tympanic membranes clear. Lungs: Equal clear breath sounds. Abdomen: Soft, benign.
+A: Pediatric Viral Fever / Acute Viral Syndrome
+P: Weight-based Paracetamol dosing (10-15 mg/kg/dose) every 4 to 6 hours as needed for temp >= 37.8°C. Tepid sponge bath (lukewarm water). Encourage frequent small sips of fluids. Follow-up if fever > 3 days or signs of lethargy.`,
+
+        clearance: `S: Asymptomatic. Seeks medical / fit-to-work / school physical clearance. No active cough, fever, allergies, or chronic medical conditions.
+O: Ambulatory, well-nourished. Vital signs within normal limits. HEENT: Normal. Heart: Normal rate, regular rhythm. Lungs: Clear to auscultation. Neurologic: Grossly intact.
+A: General Medical Examination / Fit for Work or School
+P: Physical examination normal. Medical clearance certificate issued. Continue healthy balanced diet, exercise, and regular vaccinations.`
+    };
+
+    function applySoapTemplate(type) {
+        const textarea = document.getElementById('docDiagNotes');
+        if (!textarea) return;
+        if (type === 'clear') {
+            if (confirm('Clear current clinical notes?')) {
+                textarea.value = '';
+            }
+            return;
+        }
+        if (SOAP_TEMPLATES[type]) {
+            if (textarea.value.trim() !== '' && !confirm('Replace current diagnostic notes with this template?')) {
+                return;
+            }
+            textarea.value = SOAP_TEMPLATES[type];
+            textarea.focus();
+        }
+    }
+
+    function checkVitalsNormality() {
+        const bpInput = document.getElementById('docBp');
+        const tempInput = document.getElementById('docTemp');
+        const pulseInput = document.getElementById('docPulse');
+        const badge = document.getElementById('vitalsAlertBadge');
+        if (!badge) return;
+
+        let flags = [];
+        let isDanger = false;
+        let isWarning = false;
+
+        // Check BP
+        if (bpInput && bpInput.value.trim()) {
+            const parts = bpInput.value.trim().split('/');
+            if (parts.length === 2) {
+                const sys = parseInt(parts[0]);
+                const dia = parseInt(parts[1]);
+                if (sys >= 140 || dia >= 90) {
+                    flags.push('HTN (' + sys + '/' + dia + ')');
+                    isDanger = true;
+                } else if (sys >= 120 || dia >= 80) {
+                    flags.push('Elevated BP');
+                    isWarning = true;
+                }
+            }
+        }
+
+        // Check Temp
+        if (tempInput && tempInput.value.trim()) {
+            const t = parseFloat(tempInput.value.trim());
+            if (t >= 38.0) {
+                flags.push('High Fever (' + t + '°C)');
+                isDanger = true;
+            } else if (t >= 37.5) {
+                flags.push('Low-grade Fever (' + t + '°C)');
+                isWarning = true;
+            }
+        }
+
+        // Check Pulse
+        if (pulseInput && pulseInput.value.trim()) {
+            const hr = parseInt(pulseInput.value.trim());
+            if (hr > 100) {
+                flags.push('Tachycardia (' + hr + ' bpm)');
+                isWarning = true;
+            } else if (hr < 60 && hr > 0) {
+                flags.push('Bradycardia (' + hr + ' bpm)');
+                isWarning = true;
+            }
+        }
+
+        if (flags.length > 0) {
+            if (isDanger) {
+                badge.className = 'badge bg-danger text-white small px-2 py-1';
+                badge.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i> ' + flags.join(' &bull; ');
+            } else {
+                badge.className = 'badge bg-warning text-dark small px-2 py-1';
+                badge.innerHTML = '<i class="bi bi-exclamation-circle-fill me-1"></i> ' + flags.join(' &bull; ');
+            }
+        } else if (bpInput && bpInput.value.trim() && tempInput && tempInput.value.trim()) {
+            badge.className = 'badge bg-success-subtle text-success small px-2 py-1';
+            badge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Vitals Normal';
+        } else {
+            badge.className = 'badge bg-secondary-subtle text-secondary small px-2 py-1';
+            badge.innerHTML = '<i class="bi bi-activity me-1"></i> Awaiting Entry';
+        }
+    }
+
+    function showQueueTab(tabName, btn) {
+        const panes = document.querySelectorAll('.queue-tab-pane');
+        panes.forEach(p => p.style.display = 'none');
+
+        const activePane = document.getElementById('queuePane' + tabName.charAt(0).toUpperCase() + tabName.slice(1));
+        if (activePane) {
+            activePane.style.display = 'block';
+        }
+
+        const tabBtns = document.querySelectorAll('#queueFilterTabs .nav-link');
+        tabBtns.forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+    }
+
+    // PATIENT CONSULTATION & MEDICAL HISTORY JS
+    // ==========================================
+    let currentHistPatientId = null;
+
+    function openPatientHistoryModal(patientId, patientName) {
+        currentHistPatientId = patientId;
+        const modalEl = document.getElementById('patientHistoryModal');
+        if (!modalEl) return;
+
+        // Reset inputs
+        document.getElementById('histFilterSearch').value = '';
+        document.getElementById('histFilterDateFrom').value = '';
+        document.getElementById('histFilterDateTo').value = '';
+
+        // Temporary placeholders
+        document.getElementById('histPatientName').textContent = patientName || 'Patient Record';
+        document.getElementById('histPatientAvatar').textContent = (patientName || 'P').charAt(0).toUpperCase();
+        document.getElementById('histTotalVisitsBadge').textContent = 'Loading...';
+
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+
+        loadPatientHistory(patientId);
+    }
+
+    function clearHistSearch() {
+        document.getElementById('histFilterSearch').value = '';
+        applyHistFilters();
+    }
+
+    function setHistDateRange(type) {
+        const fromInput = document.getElementById('histFilterDateFrom');
+        const toInput = document.getElementById('histFilterDateTo');
+        const now = new Date();
+        const formatDate = (d) => d.toISOString().split('T')[0];
+
+        if (type === 'all') {
+            fromInput.value = '';
+            toInput.value = '';
+        } else if (type === '30days') {
+            const past = new Date();
+            past.setDate(now.getDate() - 30);
+            fromInput.value = formatDate(past);
+            toInput.value = formatDate(now);
+        } else if (type === '90days') {
+            const past = new Date();
+            past.setDate(now.getDate() - 90);
+            fromInput.value = formatDate(past);
+            toInput.value = formatDate(now);
+        } else if (type === 'year') {
+            const yearStart = new Date(now.getFullYear(), 0, 1);
+            fromInput.value = formatDate(yearStart);
+            toInput.value = formatDate(now);
+        }
+        applyHistFilters();
+    }
+
+    function applyHistFilters() {
+        if (!currentHistPatientId) return;
+        loadPatientHistory(currentHistPatientId);
+    }
+
+    function resetHistFilters() {
+        document.getElementById('histFilterSearch').value = '';
+        document.getElementById('histFilterDateFrom').value = '';
+        document.getElementById('histFilterDateTo').value = '';
+        if (currentHistPatientId) {
+            loadPatientHistory(currentHistPatientId);
+        }
+    }
+
+    async function loadPatientHistory(patientId) {
+        const loading = document.getElementById('histLoadingState');
+        const empty = document.getElementById('histEmptyState');
+        const container = document.getElementById('histTimelineContainer');
+
+        loading.classList.remove('d-none');
+        empty.classList.add('d-none');
+        container.classList.add('d-none');
+
+        const search = document.getElementById('histFilterSearch').value.trim();
+        const dateFrom = document.getElementById('histFilterDateFrom').value;
+        const dateTo = document.getElementById('histFilterDateTo').value;
+
+        const params = new URLSearchParams({
+            patient_id: patientId,
+            search: search,
+            date_from: dateFrom,
+            date_to: dateTo
+        });
+
+        try {
+            const response = await fetch(`patient_history_api?${params.toString()}`);
+            const data = await response.json();
+
+            loading.classList.add('d-none');
+
+            if (!data.success) {
+                empty.classList.remove('d-none');
+                document.getElementById('histEmptyMsg').textContent = data.message || 'Unable to retrieve clinical history.';
+                return;
+            }
+
+            // Update patient demographic strip
+            const p = data.patient;
+            document.getElementById('histPatientName').textContent = p.full_name;
+            document.getElementById('histPatientAvatar').textContent = (p.full_name || 'P').charAt(0).toUpperCase();
+            document.getElementById('histPatientAge').textContent = (p.age !== 'N/A' ? p.age + ' yrs' : 'N/A') + (p.birth_date ? ` (${p.birth_date})` : '');
+            document.getElementById('histPatientGender').textContent = p.gender || 'N/A';
+            document.getElementById('histPatientMobile').textContent = p.mobile_number || 'N/A';
+            document.getElementById('histPatientAddress').textContent = (p.sitio || 'Paikit') + (p.street_address ? ` (${p.street_address})` : '') + ', Canlubang';
+            document.getElementById('histPatientAccountType').textContent = p.account_type === 'registered_client' ? 'Registered Client' : 'Walk-in Guest';
+            document.getElementById('histTotalVisitsBadge').textContent = `${data.total_visits} Record(s)`;
+
+            if (!data.encounters || data.encounters.length === 0) {
+                empty.classList.remove('d-none');
+                document.getElementById('histEmptyMsg').textContent = (search || dateFrom || dateTo)
+                    ? 'No consultation records matched your search / date filter criteria.'
+                    : 'This patient has no recorded consultations yet.';
+                return;
+            }
+
+            renderHistoryTimeline(data.encounters, p);
+            container.classList.remove('d-none');
+
+        } catch (err) {
+            loading.classList.add('d-none');
+            empty.classList.remove('d-none');
+            document.getElementById('histEmptyMsg').textContent = 'Network or server error while fetching patient history.';
+            console.error('History load error:', err);
+        }
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function renderHistoryTimeline(encounters, patient) {
+        const container = document.getElementById('histTimelineContainer');
+        let html = '';
+
+        encounters.forEach((enc, idx) => {
+            const v = enc.vital_signs;
+            const rx = enc.prescriptions;
+
+            // Status Badge
+            let statusBadge = `<span class="badge bg-secondary">${escapeHtml(enc.queue_status)}</span>`;
+            if (enc.queue_status === 'Completed') statusBadge = `<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Completed</span>`;
+            else if (enc.queue_status === 'Serving') statusBadge = `<span class="badge bg-danger"><i class="bi bi-broadcast me-1"></i>Serving</span>`;
+            else if (enc.queue_status === 'Waiting') statusBadge = `<span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split me-1"></i>Waiting</span>`;
+
+            // Encounter Type Badge
+            const typeBadge = enc.encounter_type === 'Appointment'
+                ? `<span class="badge bg-info-subtle text-info border"><i class="bi bi-calendar-check me-1"></i>Appointment</span>`
+                : `<span class="badge bg-primary-subtle text-primary border"><i class="bi bi-person-walking me-1"></i>Walk-in</span>`;
+
+            // Priority badge
+            const priorityBadge = enc.is_priority
+                ? `<span class="badge bg-danger ms-1"><i class="bi bi-lightning-fill"></i> Priority</span>`
+                : '';
+
+            // Medications HTML
+            let rxHtml = '';
+            if (rx && rx.items && rx.items.length > 0) {
+                rxHtml = `
+                    <div class="mt-3 pt-3 border-top">
+                        <div class="mb-2">
+                            <span class="fw-bold small text-dark"><i class="bi bi-capsule text-success me-1"></i> Issued Prescriptions (${rx.items.length})</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-bordered bg-white small mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Medication</th>
+                                        <th>Dosage / Instructions</th>
+                                        <th>Duration</th>
+                                        <th class="text-center">Qty</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rx.items.map(m => `
+                                        <tr>
+                                            <td class="fw-bold text-primary">${escapeHtml(m.medication || m.name || '')}</td>
+                                            <td>${escapeHtml(m.dosage || m.sig || '--')}</td>
+                                            <td>${escapeHtml(m.duration || '--')}</td>
+                                            <td class="text-center fw-bold">${escapeHtml(m.quantity || '--')}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += `
+                <div class="card border-0 shadow-sm rounded-3 mb-3">
+                    <div class="card-header bg-white py-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <span class="badge bg-dark font-monospace fs-6">Ticket #${escapeHtml(enc.queue_number)}</span>
+                            ${typeBadge}
+                            ${priorityBadge}
+                            <span class="fw-bold text-dark fs-6">${escapeHtml(enc.visit_date_human)}</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            ${statusBadge}
+                            <a href="../client/view_record?encounter_id=${enc.encounter_id}" target="_blank" class="btn btn-outline-secondary btn-sm py-0 px-2 rounded-pill" title="Print clinical slip">
+                                <i class="bi bi-printer me-1"></i> Slip
+                            </a>
+                        </div>
+                    </div>
+                    <div class="card-body p-3">
+                        <div class="row g-3">
+                            <!-- Left: Vitals Snapshot -->
+                            <div class="col-md-4 border-end-md">
+                                <div class="p-2 rounded-3 bg-light border">
+                                    <div class="small fw-bold text-muted mb-2 text-uppercase" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+                                        <i class="bi bi-heart-pulse text-danger me-1"></i> Vital Signs Snapshot
+                                    </div>
+                                    <div class="row g-2 small">
+                                        <div class="col-6">
+                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Blood Pressure</span>
+                                            <strong class="text-dark">${escapeHtml(v.bp)}</strong>
+                                        </div>
+                                        <div class="col-6">
+                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Body Temp</span>
+                                            <strong class="text-dark">${escapeHtml(v.temp)}</strong>
+                                        </div>
+                                        <div class="col-6">
+                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Weight</span>
+                                            <strong class="text-dark">${escapeHtml(v.weight)}</strong>
+                                        </div>
+                                        <div class="col-6">
+                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Height</span>
+                                            <strong class="text-dark">${escapeHtml(v.height)}</strong>
+                                        </div>
+                                        <div class="col-6">
+                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Pulse / HR</span>
+                                            <strong class="text-dark">${escapeHtml(v.pulse)}</strong>
+                                        </div>
+                                        <div class="col-6">
+                                            <span class="text-muted d-block" style="font-size: 0.75rem;">Respiratory Rate</span>
+                                            <strong class="text-dark">${escapeHtml(v.rr)}</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-2 small text-muted">
+                                    <i class="bi bi-person-badge text-primary me-1"></i> Attending: <strong>${escapeHtml(enc.attending_doctor)}</strong>
+                                </div>
+                            </div>
+
+                            <!-- Right: Chief Complaint & Diagnostic Notes -->
+                            <div class="col-md-8">
+                                <div class="mb-2">
+                                    <span class="small fw-bold text-secondary d-block"><i class="bi bi-chat-left-quote text-primary me-1"></i> Chief Complaint:</span>
+                                    <div class="small text-dark p-2 bg-white rounded border">${escapeHtml(enc.complaint)}</div>
+                                </div>
+
+                                <div>
+                                    <span class="small fw-bold text-primary d-block"><i class="bi bi-clipboard2-pulse me-1"></i> Primary Diagnosis & Clinical Assessment:</span>
+                                    <div class="small text-dark p-3 rounded-3 border border-primary-subtle" style="background-color: #f8fafc; white-space: pre-line; min-height: 50px;">
+                                        ${escapeHtml(enc.diagnostic_notes)}
+                                    </div>
+                                </div>
+
+                                ${rxHtml}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
         calcBMI();
+        checkVitalsNormality();
         const welcomeModalEl = document.getElementById('welcomeMsgModal');
         if (welcomeModalEl) {
             const welcomeModal = bootstrap.Modal.getOrCreateInstance(welcomeModalEl);

@@ -82,7 +82,7 @@ if (!$encounter) {
                     <strong>Data Privacy Act of 2012 (RA 10173)</strong>, medical records are strictly protected.
                 </p>
                 <div class="alert alert-secondary small mb-3">
-                    Please ensure that you entered the exact Transaction Code printed on your walk-in slip (e.g., <code>PK-2026-DEMO12</code>), or log into your verified client account.
+                    Please ensure that you entered the exact Transaction Code printed on your walk-in slip, or log into your verified client account.
                 </div>
                 <div class="d-flex justify-content-between">
                     <a href="../" class="btn btn-primary">Return to Home</a>
@@ -327,15 +327,10 @@ $verifyUrl = "http://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . "/paikit/clien
 
         <!-- Electronic Prescription Section (Rx) -->
         <div class="mb-4">
-            <div class="d-flex align-items-center justify-content-between border-bottom pb-1 mb-3">
+            <div class="d-flex align-items-center border-bottom pb-1 mb-3">
                 <div class="d-flex align-items-center gap-2">
                     <span class="rx-symbol">℞</span>
                     <h5 class="fw-bold text-dark mb-0">PRESCRIPTION ORDER</h5>
-                </div>
-                <div>
-                    <span class="badge <?= ($encounter['dispense_status'] ?? '') === 'Dispensed' ? 'bg-success' : 'bg-warning text-dark' ?>">
-                        Dispense Status: <?= sanitize($encounter['dispense_status'] ?? 'Pending') ?>
-                    </span>
                 </div>
             </div>
 

@@ -82,15 +82,63 @@ body.senior-mode .badge {
     padding: 0.5rem 0.9rem !important;
 }
 
-/* Base Typography & Background Canvas */
+/* Base Typography & Background Canvas with Auto-Adjusting Resolution System */
+html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    box-sizing: border-box;
+}
+
+*, *::before, *::after {
+    box-sizing: inherit;
+}
+
+/* Auto-Adjusting Resolution Scaling */
+@media (min-width: 1920px) {
+    html {
+        font-size: 17px;
+    }
+}
+
+@media (min-width: 2560px) {
+    html {
+        font-size: 18.5px;
+    }
+}
+
+@media (max-width: 1399.98px) {
+    html {
+        font-size: 15px;
+    }
+}
+
+@media (max-width: 1199.98px) {
+    html {
+        font-size: 14.5px;
+    }
+}
+
+@media (max-width: 991.98px) {
+    html {
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 575.98px) {
+    html {
+        font-size: 13.5px;
+    }
+}
+
 body {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     background-color: var(--canvas) !important;
     color: var(--slate-text);
-    font-size: var(--base-font-size);
+    font-size: 1rem;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
 }
 
 /* Headers & Navigation with Rich Healthcare Green Gradient */
@@ -804,4 +852,333 @@ body {
     flex: 1;
     height: 1px;
     background: #e2e8f0;
+}
+
+/* ==========================================================================
+   FLUID RESPONSIVE AUTO-ADJUSTING RULES
+   ========================================================================== */
+
+/* Fluid Containers */
+.container-fluid {
+    padding-left: clamp(12px, 2vw, 32px) !important;
+    padding-right: clamp(12px, 2vw, 32px) !important;
+    width: 100%;
+}
+
+@media (min-width: 1920px) {
+    .container, .container-fluid {
+        max-width: 1840px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+}
+
+/* Responsive Image and Media Scaling */
+img, svg, video, canvas {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Fluid Hero Banners */
+.dash-hero {
+    padding: clamp(1rem, 2vw, 1.85rem) clamp(1rem, 2.2vw, 2.4rem) !important;
+    border-radius: clamp(14px, 1.5vw, 22px) !important;
+}
+
+/* Fluid Stat Cards */
+.stat-card {
+    padding: clamp(0.95rem, 1.2vw, 1.4rem) !important;
+    border-radius: clamp(12px, 1.2vw, 18px) !important;
+    height: 100%;
+}
+
+.stat-value {
+    font-size: clamp(1.4rem, 2vw + 0.4rem, 2.2rem) !important;
+}
+
+/* Fluid Table Responsiveness */
+.table-responsive {
+    border-radius: var(--radius-md);
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+}
+
+.table-responsive::-webkit-scrollbar {
+    height: 6px;
+}
+
+/* Fluid Typography */
+h1, .h1 { font-size: clamp(1.6rem, 2.2vw + 0.6rem, 2.4rem); }
+h2, .h2 { font-size: clamp(1.35rem, 1.8vw + 0.5rem, 2rem); }
+h3, .h3 { font-size: clamp(1.2rem, 1.4vw + 0.4rem, 1.65rem); }
+h4, .h4 { font-size: clamp(1.1rem, 1vw + 0.4rem, 1.4rem); }
+h5, .h5 { font-size: clamp(1rem, 0.8vw + 0.3rem, 1.25rem); }
+
+/* Prevent unexpected card overflows on small viewports */
+.card, .modal-content, .alert {
+    max-width: 100%;
+}
+
+/* Auto-Centering Modal on Various Resolutions */
+@media (min-width: 576px) {
+    .modal-dialog {
+        max-width: min(92vw, 800px);
+    }
+}
+@media (min-width: 1200px) {
+    .modal-dialog.modal-lg {
+        max-width: min(90vw, 960px);
+    }
+}
+
+/* =======================================================
+   CLIENT-SIDE MODERN PORTAL UI / UX SYSTEM
+   Designed for Barangay Community Members & Seniors
+   ======================================================= */
+
+/* Patient Segmented Navigation Pills */
+.patient-pill-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: #edf2f7;
+    padding: 0.5rem 0.65rem;
+    border-radius: 20px;
+    border: 1px solid #e2e8f0;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.patient-pill-nav::-webkit-scrollbar {
+    display: none;
+}
+
+.patient-pill-btn {
+    flex: 1 1 auto;
+    min-width: max-content;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 0.7rem 1.15rem;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: #475569;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    text-decoration: none;
+}
+.patient-pill-btn .badge {
+    margin-left: 0.35rem;
+    font-size: 0.74rem;
+    padding: 0.32em 0.65em;
+    letter-spacing: 0.3px;
+}
+
+.patient-pill-btn:hover {
+    color: var(--primary);
+    background: rgba(255, 255, 255, 0.75);
+    border-color: rgba(0, 0, 0, 0.04);
+}
+
+.patient-pill-btn.active {
+    background: #ffffff;
+    color: var(--primary);
+    border-color: rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 12px -2px rgba(21, 128, 61, 0.12), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+}
+
+.patient-pill-btn.btn-pending-nav {
+    color: #92400e;
+}
+
+.patient-pill-btn.btn-pending-nav:hover {
+    background: #fef3c7;
+    color: #78350f;
+    border-color: #fde68a;
+}
+
+/* 4-Stage Visual Workflow Stepper */
+.patient-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    padding: 1rem 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.stepper-progress-bar {
+    position: absolute;
+    top: 50%;
+    left: 10%;
+    right: 10%;
+    height: 4px;
+    background: #e2e8f0;
+    transform: translateY(-50%);
+    z-index: 1;
+    border-radius: 9999px;
+}
+
+.stepper-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #15803d, #22c55e);
+    border-radius: 9999px;
+    transition: width 0.4s ease;
+}
+
+.stepper-node {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    flex: 1;
+}
+
+.stepper-circle {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 3px solid #cbd5e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #64748b;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.stepper-node.completed .stepper-circle {
+    background: #15803d;
+    border-color: #15803d;
+    color: #ffffff;
+}
+
+.stepper-node.active .stepper-circle {
+    background: #ffffff;
+    border-color: #15803d;
+    color: #15803d;
+    box-shadow: 0 0 0 4px rgba(21, 128, 61, 0.2);
+    transform: scale(1.1);
+}
+
+.stepper-label {
+    margin-top: 0.45rem;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.stepper-node.active .stepper-label {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.stepper-node.completed .stepper-label {
+    color: #1e293b;
+}
+
+/* Live Queue Radar Box */
+.live-radar-box {
+    background: linear-gradient(135deg, #f0fdf4 0%, #e0f2fe 100%);
+    border: 1.5px solid #86efac;
+    border-radius: 18px;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.live-radar-pulse {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    background-color: #22c55e;
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+    animation: livePulse 1.8s infinite;
+}
+
+@keyframes livePulse {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+    }
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+    }
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+    }
+}
+
+/* Touch-Optimized Calendar Day Enhancements */
+.cal-day-cell {
+    border-radius: 12px !important;
+    min-height: 98px !important;
+    position: relative;
+    user-select: none;
+}
+
+.cal-day-cell:active {
+    transform: scale(0.97);
+}
+
+/* Floating Bottom Navigation Bar for Mobile Phones */
+.mobile-patient-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #ffffff;
+    border-top: 1px solid #e2e8f0;
+    padding: 0.4rem 0.5rem;
+    z-index: 1040;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.mobile-nav-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #64748b;
+    text-decoration: none;
+    padding: 0.3rem 0;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.mobile-nav-link i {
+    font-size: 1.25rem;
+    margin-bottom: 2px;
+}
+
+.mobile-nav-link.active {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+@media (max-width: 767.98px) {
+    .mobile-patient-nav {
+        display: flex;
+        justify-content: space-around;
+    }
+    body {
+        padding-bottom: 70px;
+    }
 }

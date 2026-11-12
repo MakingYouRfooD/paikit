@@ -121,11 +121,16 @@ CREATE TABLE `audit_logs` (
   `username` VARCHAR(50) DEFAULT 'Guest',
   `role` VARCHAR(20) DEFAULT 'Guest',
   `action` VARCHAR(100) NOT NULL,
+  `entity_type` VARCHAR(50) DEFAULT NULL,
+  `entity_id` VARCHAR(50) DEFAULT NULL,
   `details` TEXT DEFAULT NULL,
+  `changes_payload` LONGTEXT DEFAULT NULL,
   `ip_address` VARCHAR(45) DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_audit_user` (`user_id`),
-  INDEX `idx_audit_date` (`created_at`)
+  INDEX `idx_audit_date` (`created_at`),
+  INDEX `idx_audit_action` (`action`),
+  INDEX `idx_audit_entity` (`entity_type`, `entity_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 8. Password Resets Table

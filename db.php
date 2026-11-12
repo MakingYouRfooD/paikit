@@ -16,13 +16,12 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Database Credentials (Supports Cloud Environment Variables with Local XAMPP Fallback)
-define('DB_HOST', getenv('DB_HOST') ?: (getenv('DB_SSL') ? 'gateway01.ap-southeast-1.prod.aws.tidbcloud.com' : '127.0.0.1'));
-define('DB_PORT', getenv('DB_PORT') ?: (getenv('DB_SSL') ? '4000' : '3306'));
-define('DB_NAME', getenv('DB_NAME') ?: 'test');
-define('DB_USER', getenv('DB_USER') ?: 'root');
-define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');
-define('DB_CHARSET', getenv('DB_CHARSET') ?: 'utf8mb4');
+// Database Credentials (Local XAMPP Environment)
+define('DB_HOST', '127.0.0.1');
+define('DB_NAME', 'paikit_health_center');
+define('DB_USER', 'root');
+define('DB_PASS', '');
+define('DB_CHARSET', 'utf8mb4');
 
 /**
  * Returns singleton PDO connection instance.
@@ -30,23 +29,12 @@ define('DB_CHARSET', getenv('DB_CHARSET') ?: 'utf8mb4');
 function get_db(): PDO {
     static $pdo = null;
     if ($pdo === null) {
-        $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
+        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
         $options = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => false,
         ];
-        
-        // SSL support for cloud databases (e.g., TiDB Cloud, Aiven)
-        if (getenv('DB_SSL') === 'true' || getenv('DB_SSL') === '1') {
-            $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
-            if (file_exists('/etc/ssl/certs/ca-certificates.crt')) {
-                $options[PDO::MYSQL_ATTR_SSL_CA] = '/etc/ssl/certs/ca-certificates.crt';
-            } else {
-                $options[PDO::MYSQL_ATTR_SSL_CA] = true;
-            }
-        }
-
         try {
             $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
         } catch (PDOException $e) {
@@ -260,15 +248,16 @@ function generate_transaction_code(): string {
  * Sequential Queue Number Generator for the Current Day
  * e.g., W-001, W-002 (Walk-in) or A-001, A-002 (Appointment)
  */
-function generate_queue_number(PDO $pdo, string $prefix = 'W'): string {
-    $todayStart = date('Y-m-d 00:00:00');
-    $todayEnd   = date('Y-m-d 23:59:59');
+function generate_queue_number(PDO $pdo, string $prefix = 'W', ?string $targetDate = null): string {
+    $date = $targetDate ?: date('Y-m-d');
+    $dayStart = $date . ' 00:00:00';
+    $dayEnd   = $date . ' 23:59:59';
 
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM encounters WHERE visit_date BETWEEN ? AND ? AND queue_number LIKE ?");
-    $stmt->execute([$todayStart, $todayEnd, $prefix . '-%']);
-    $count = (int)$stmt->fetchColumn();
+    $stmt = $pdo->prepare("SELECT MAX(CAST(SUBSTRING(queue_number, 3) AS UNSIGNED)) FROM encounters WHERE visit_date BETWEEN ? AND ? AND queue_number LIKE ?");
+    $stmt->execute([$dayStart, $dayEnd, $prefix . '-%']);
+    $maxNum = (int)$stmt->fetchColumn();
 
-    $nextNum = $count + 1;
+    $nextNum = $maxNum + 1;
     return sprintf("%s-%03d", $prefix, $nextNum);
 }
 
@@ -446,9 +435,18 @@ function get_patient_live_queue_info(PDO $pdo, int $encounterId, string $todaySt
 }
 
 /**
- * Audit Logging Function (RA 10173 Security Tracking)
+ * Audit Logging Function (RA 10173 Security Tracking & Activity Auditing)
+ * 
+ * Supports legacy signature audit_log($action, $details) as well as structured
+ * audit trails with entity tracking and changes diff payload.
  */
-function audit_log(string $action, string $details = ''): void {
+function audit_log(
+    string $action, 
+    string $details = '', 
+    ?string $entityType = null, 
+    ?string $entityId = null, 
+    $changes = null
+): void {
     try {
         $pdo = get_db();
         $userId   = $_SESSION['user_id'] ?? null;
@@ -456,8 +454,16 @@ function audit_log(string $action, string $details = ''): void {
         $role     = $_SESSION['role'] ?? 'Guest';
         $ip       = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
 
-        $stmt = $pdo->prepare("INSERT INTO audit_logs (user_id, username, role, action, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$userId, $username, $role, $action, $details, $ip]);
+        $payload = null;
+        if ($changes !== null) {
+            $payload = is_string($changes) ? $changes : json_encode($changes, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        }
+
+        $stmt = $pdo->prepare("
+            INSERT INTO audit_logs (user_id, username, role, action, entity_type, entity_id, details, changes_payload, ip_address) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([$userId, $username, $role, $action, $entityType, $entityId, $details, $payload, $ip]);
     } catch (Exception $e) {
         // Fail silently so logging error doesn't break primary transactions
         error_log("Audit log failed: " . $e->getMessage());

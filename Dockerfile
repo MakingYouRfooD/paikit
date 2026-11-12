@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y \
 # Enable Apache mod_rewrite for .htaccess clean URLs
 RUN a2enmod rewrite
 
+# Enforce single MPM prefork for mod_php (prevents AH00534: More than one MPM loaded)
+RUN a2dismod mpm_event mpm_worker 2>/dev/null || true && a2enmod mpm_prefork
+
 # Enable AllowOverride All so .htaccess works inside /var/www/html
 RUN sed -ri -e 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
 

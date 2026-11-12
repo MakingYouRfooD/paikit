@@ -33,9 +33,6 @@ function get_mail_config(): array {
     ];
 
     try {
-        if (!function_exists('get_db')) {
-            require_once __DIR__ . '/../db.php';
-        }
         if (function_exists('get_db')) {
             $pdo = get_db();
             $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings WHERE setting_key LIKE 'smtp_%'");
@@ -133,13 +130,11 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
     $config = get_mail_config();
 
     // 0. Support for Resend HTTPS API (Port 443 - Bypasses Cloud SMTP Port Restrictions)
-    $resendKey = getenv('RESEND_API_KEY') ?: '';
+    $resendKey = getenv('RESEND_API_KEY') ?: 're_5SfvmZ2v_4HrkR3oTWh3yodMc3MinxUBr';
     if (!empty($resendKey)) {
         try {
             $ch = curl_init('https://api.resend.com/emails');
-            $sender = (!empty($config['from_address']) && !str_contains($config['from_address'], '@gmail.com')) 
-                ? "{$config['from_name']} <{$config['from_address']}>" 
-                : 'Paikit Health Center <onboarding@resend.dev>';
+            $sender = 'Paikit Health Center <onboarding@resend.dev>';
             $payload = json_encode([
                 'from'    => $sender,
                 'to'      => [$toEmail],
@@ -159,8 +154,12 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
             curl_close($ch);
             if ($code >= 200 && $code < 300) {
                 return ['success' => true, 'sent' => true, 'simulated' => false, 'error' => null];
+            } else {
+                error_log("Resend API Delivery Failed ($code): " . $res);
             }
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            error_log("Resend Exception: " . $e->getMessage());
+        }
     }
 
     // 0.1 Support for Brevo HTTPS API (Port 443 - Bypasses Cloud SMTP Port Restrictions)

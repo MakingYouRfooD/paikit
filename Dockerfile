@@ -24,8 +24,11 @@ COPY . /var/www/html/
 # Set proper permissions for web server
 RUN chown -R www-data:www-data /var/www/html
 
-# Configure Apache to listen on Render's dynamic PORT environment variable (default 80)
+# Configure Apache to ensure only prefork MPM is active and listen on dynamic PORT
 RUN printf '#!/bin/bash\n\
+rm -f /etc/apache2/mods-enabled/mpm_*.load /etc/apache2/mods-enabled/mpm_*.conf\n\
+ln -sf /etc/apache2/mods-available/mpm_prefork.load /etc/apache2/mods-enabled/mpm_prefork.load\n\
+ln -sf /etc/apache2/mods-available/mpm_prefork.conf /etc/apache2/mods-enabled/mpm_prefork.conf\n\
 PORT="${PORT:-80}"\n\
 sed -i "s/Listen [0-9]*/Listen ${PORT}/g" /etc/apache2/ports.conf\n\
 sed -i "s/<VirtualHost \\*:[0-9]*>/<VirtualHost \\*:${PORT}>/g" /etc/apache2/sites-available/000-default.conf\n\

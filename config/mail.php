@@ -148,17 +148,25 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
             curl_setopt($ch, CURLOPT_TIMEOUT, 15);
             $res = curl_exec($ch);
-            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErr = curl_error($ch);
             curl_close($ch);
+
             if ($code >= 200 && $code < 300) {
                 return ['success' => true, 'sent' => true, 'simulated' => false, 'error' => null];
             } else {
-                error_log("Resend API Delivery Failed ($code): " . $res);
+                $errorDetail = !empty($curlErr) ? $curlErr : $res;
+                error_log("Resend API Delivery Failed ($code): " . $errorDetail);
+                // Return immediately so it doesn't fall through to blocked SMTP ports
+                return ['success' => false, 'sent' => false, 'simulated' => false, 'error' => "Resend Error ($code): " . $errorDetail];
             }
         } catch (\Throwable $e) {
             error_log("Resend Exception: " . $e->getMessage());
+            return ['success' => false, 'sent' => false, 'simulated' => false, 'error' => "Resend Exception: " . $e->getMessage()];
         }
     }
 

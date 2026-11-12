@@ -70,18 +70,6 @@ if ($mRole === 'Staff') {
                             <i class="bi bi-shield-lock-fill text-success me-2 fs-5"></i> Change Password & Security
                         </button>
                     </li>
-                    <?php if ($mRole === 'Staff'): ?>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link fw-bold text-dark py-3 d-flex align-items-center justify-content-center gap-1" id="smtp-tab" data-bs-toggle="tab" data-bs-target="#tab-smtp" type="button" role="tab" aria-controls="tab-smtp" aria-selected="false">
-                            <i class="bi bi-envelope-gear text-warning me-1 fs-5"></i> Email & SMTP
-                            <?php if (empty($modalMailConfig['username']) || empty($modalMailConfig['password'])): ?>
-                                <span class="badge bg-danger rounded-pill ms-1" style="font-size: 0.7rem;">Setup</span>
-                            <?php else: ?>
-                                <span class="badge bg-success rounded-pill ms-1" style="font-size: 0.7rem;">Active</span>
-                            <?php endif; ?>
-                        </button>
-                    </li>
-                    <?php endif; ?>
                 </ul>
 
                 <div class="tab-content p-4" id="settingsTabContent">
@@ -392,98 +380,6 @@ if ($mRole === 'Staff') {
                             </div>
                         </form>
                     </div>
-
-                    <?php if ($mRole === 'Staff'): ?>
-                    <!-- TAB 3: EMAIL & SMTP CONFIGURATION -->
-                    <div class="tab-pane fade" id="tab-smtp" role="tabpanel" aria-labelledby="smtp-tab">
-                        <!-- Info Alert -->
-                        <div class="alert alert-primary-subtle text-primary border border-primary small mb-3">
-                            <i class="bi bi-info-circle-fill me-1"></i>
-                            Configure your outgoing email server (Gmail, Yahoo, or Custom SMTP). This enables real email delivery for password reset links and official clinic notices.
-                        </div>
-
-                        <!-- Google App Password Quick Guide -->
-                        <div class="card border rounded-3 p-3 bg-light mb-4">
-                            <div class="d-flex align-items-center justify-content-between mb-2">
-                                <strong class="text-dark small"><i class="bi bi-google me-1 text-danger"></i> How to use Gmail SMTP:</strong>
-                                <a href="https://myaccount.google.com/apppasswords" target="_blank" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 0.75rem;">
-                                    <i class="bi bi-box-arrow-up-right me-1"></i> Open Google App Passwords
-                                </a>
-                            </div>
-                            <ol class="small text-muted mb-0 ps-3" style="font-size: 0.8rem; line-height: 1.5;">
-                                <li>Go to your <strong>Google Account Security</strong> settings and ensure <strong>2-Step Verification</strong> is ON.</li>
-                                <li>Search for <strong>"App Passwords"</strong> (or visit the button above).</li>
-                                <li>Create a new App Password named <em>"Paikit Health Center"</em>.</li>
-                                <li>Copy the generated <strong>16-letter password</strong> and paste it into the <em>SMTP Password</em> field below.</li>
-                            </ol>
-                        </div>
-
-                        <!-- Configuration Form -->
-                        <form action="walkin_process" method="POST">
-                            <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
-                            <input type="hidden" name="action" value="save_smtp_settings">
-
-                            <div class="row g-3 mb-3">
-                                <div class="col-md-8">
-                                    <label class="form-label fw-bold small">SMTP Server Host</label>
-                                    <input type="text" name="smtp_host" class="form-control" value="<?= sanitize($modalMailConfig['host'] ?? 'smtp.gmail.com') ?>" required placeholder="e.g. smtp.gmail.com">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label fw-bold small">Port</label>
-                                    <input type="number" name="smtp_port" class="form-control" value="<?= (int)($modalMailConfig['port'] ?? 587) ?>" required placeholder="587">
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label fw-bold small">SMTP Email / Username</label>
-                                    <input type="email" name="smtp_username" class="form-control" value="<?= sanitize($modalMailConfig['username'] ?? '') ?>" required placeholder="e.g. paikithealthcenter@gmail.com">
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label fw-bold small">SMTP Password / 16-Letter App Password</label>
-                                    <div class="input-group">
-                                        <input type="password" name="smtp_password" id="settingsSmtpPassInput" class="form-control" value="<?= sanitize($modalMailConfig['password'] ?? '') ?>" placeholder="Enter 16-letter App Password">
-                                        <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('settingsSmtpPassInput', this)">
-                                            <i class="bi bi-eye"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label fw-bold small">Encryption</label>
-                                    <select name="smtp_encryption" class="form-select">
-                                        <option value="tls" <?= ($modalMailConfig['encryption'] ?? 'tls') === 'tls' ? 'selected' : '' ?>>TLS (Port 587 - Recommended)</option>
-                                        <option value="ssl" <?= ($modalMailConfig['encryption'] ?? 'tls') === 'ssl' ? 'selected' : '' ?>>SSL (Port 465)</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-8">
-                                    <label class="form-label fw-bold small">Sender Display Name</label>
-                                    <input type="text" name="smtp_from_name" class="form-control" value="<?= sanitize($modalMailConfig['from_name'] ?? 'Paikit Health Center') ?>" required placeholder="Paikit Health Center">
-                                </div>
-                            </div>
-
-                            <div class="d-flex justify-content-end mb-4">
-                                <button type="submit" class="btn btn-primary fw-bold shadow-sm">
-                                    <i class="bi bi-check-circle me-1"></i> Save SMTP Settings
-                                </button>
-                            </div>
-                        </form>
-
-                        <!-- Test Email Section -->
-                        <div class="card border rounded-3 p-3 bg-light">
-                            <h6 class="fw-bold text-dark mb-2">
-                                <i class="bi bi-send-check text-success me-1"></i> Test Real Email Delivery
-                            </h6>
-                            <p class="text-muted small mb-2" style="font-size: 0.8rem;">
-                                Send a live test email to verify that PHPMailer can successfully connect and deliver messages to inboxes.
-                            </p>
-                            <form action="walkin_process" method="POST" class="d-flex gap-2">
-                                <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
-                                <input type="hidden" name="action" value="test_smtp_email">
-                                <input type="email" name="test_email" class="form-control form-control-sm" placeholder="Enter recipient email (e.g. your personal email)" required>
-                                <button type="submit" class="btn btn-success btn-sm fw-bold text-nowrap">
-                                    <i class="bi bi-send me-1"></i> Send Test Email
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                    <?php endif; ?>
                 </div>
             </div>
         </div>

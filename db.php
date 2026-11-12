@@ -95,6 +95,16 @@ function get_db(): PDO {
 
         try {
             $pdo = new AppPDO($dsn, $user, $pass, $options);
+            // Synchronize database session timezone with Philippine Standard Time (PST / UTC+8)
+            try {
+                if ($driver === 'pgsql') {
+                    $pdo->exec("SET TIME ZONE 'Asia/Manila'");
+                } else {
+                    $pdo->exec("SET time_zone = '+08:00'");
+                }
+            } catch (Throwable $tzErr) {
+                // Non-critical: continue even if timezone table is not populated
+            }
         } catch (PDOException $e) {
             // Under RA 10173, prevent disclosing database connection strings or internals to end-users
             error_log("Database Connection Error: " . $e->getMessage());

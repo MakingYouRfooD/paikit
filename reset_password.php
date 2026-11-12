@@ -14,14 +14,15 @@ $resetRecord = null;
 
 if (!empty($token)) {
     // Validate token exists and has not expired
+    $nowTimestamp = date('Y-m-d H:i:s');
     $stmt = $pdo->prepare("
         SELECT pr.*, u.username, u.full_name, u.email AS user_email, u.role
         FROM password_resets pr
         JOIN users u ON pr.user_id = u.user_id
-        WHERE pr.token = ? AND pr.expires_at > NOW()
+        WHERE pr.token = ? AND pr.expires_at > ?
         LIMIT 1
     ");
-    $stmt->execute([$token]);
+    $stmt->execute([$token, $nowTimestamp]);
     $resetRecord = $stmt->fetch();
     if ($resetRecord) {
         $isValidToken = true;

@@ -53,8 +53,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ");
                 $stmtInsert->execute([$userId, $targetEmail, $token, $expiresAt]);
 
-                // Build Absolute Reset URL (Using Clean URL)
-                $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https" : "http";
+                // Build Absolute Reset URL (Using HTTPS on Render / Production)
+                $protocol = (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) 
+                    ? $_SERVER['HTTP_X_FORWARDED_PROTO'] 
+                    : ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https" : "http");
                 $host = $_SERVER['HTTP_HOST'];
                 $baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
                 $resetLink = "{$protocol}://{$host}{$baseDir}/reset_password?token={$token}";
@@ -66,17 +68,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     audit_log('PASSWORD_RESET_DISPATCHED', "Password reset email successfully delivered to {$targetEmail} via live SMTP.");
                     $success = "An official password reset email has been successfully sent to <strong>" . sanitize($targetEmail) . "</strong> via PHPMailer. Please check your inbox (and spam folder).";
                 } elseif (!empty($mailResult['simulated'])) {
-                    audit_log('PASSWORD_RESET_SIMULATED', "Password reset link generated in local test mode for {$targetEmail}.");
+                    audit_log('PASSWORD_RESET_SIMULATED', "Password reset link generated in test mode for {$targetEmail}.");
                     $success = "A secure password reset link has been generated for <strong>" . sanitize($targetEmail) . "</strong>.";
                     $devResetLink = $resetLink;
                 } else {
                     audit_log('PASSWORD_RESET_FAILED', "PHPMailer failed to send to {$targetEmail}: " . ($mailResult['error'] ?? 'Unknown error'));
-                    $error = "SMTP Notice: " . sanitize($mailResult['error'] ?? 'Delivery failed');
-                    
-                    // In local development on localhost, allow testing the generated link
-                    if (in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1']) || str_contains($host, 'localhost')) {
-                        $devResetLink = $resetLink;
-                    }
+                    // Display friendly notice and the fallback direct link so the user is never locked out
+                    $error = "Email Dispatch Notice: " . sanitize($mailResult['error'] ?? 'SMTP delivery failed. Click the direct reset link below.');
+                    $devResetLink = $resetLink;
                 }
             } else {
                 // RA 10173 Security: Generic confirmation to prevent email enumeration

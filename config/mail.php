@@ -14,7 +14,7 @@ use PHPMailer\PHPMailer\Exception;
 use PHPMailer\PHPMailer\SMTP;
 
 /**
- * Returns active SMTP configuration from database or fallback constants.
+ * Returns active SMTP configuration from database or fallback constants/env vars.
  */
 function get_mail_config(): array {
     static $config = null;
@@ -33,6 +33,9 @@ function get_mail_config(): array {
     ];
 
     try {
+        if (!function_exists('get_db')) {
+            require_once __DIR__ . '/../db.php';
+        }
         if (function_exists('get_db')) {
             $pdo = get_db();
             $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings WHERE setting_key LIKE 'smtp_%'");
@@ -54,13 +57,26 @@ function get_mail_config(): array {
     }
 
     // Overrides via constants or environment variables if defined
-    if (defined('MAIL_HOST') && !empty(MAIL_HOST)) $config['host'] = MAIL_HOST;
-    if (defined('MAIL_PORT') && !empty(MAIL_PORT)) $config['port'] = (int)MAIL_PORT;
-    if (defined('MAIL_USERNAME') && !empty(MAIL_USERNAME)) $config['username'] = MAIL_USERNAME;
-    if (defined('MAIL_PASSWORD') && !empty(MAIL_PASSWORD)) $config['password'] = MAIL_PASSWORD;
-    if (defined('MAIL_ENCRYPTION') && !empty(MAIL_ENCRYPTION)) $config['encryption'] = MAIL_ENCRYPTION;
-    if (defined('MAIL_FROM_ADDRESS') && !empty(MAIL_FROM_ADDRESS)) $config['from_address'] = MAIL_FROM_ADDRESS;
-    if (defined('MAIL_FROM_NAME') && !empty(MAIL_FROM_NAME)) $config['from_name'] = MAIL_FROM_NAME;
+    if (getenv('SMTP_HOST')) $config['host'] = getenv('SMTP_HOST');
+    elseif (defined('MAIL_HOST') && !empty(MAIL_HOST)) $config['host'] = MAIL_HOST;
+
+    if (getenv('SMTP_PORT')) $config['port'] = (int)getenv('SMTP_PORT');
+    elseif (defined('MAIL_PORT') && !empty(MAIL_PORT)) $config['port'] = (int)MAIL_PORT;
+
+    if (getenv('SMTP_USER') ?: getenv('SMTP_USERNAME')) $config['username'] = getenv('SMTP_USER') ?: getenv('SMTP_USERNAME');
+    elseif (defined('MAIL_USERNAME') && !empty(MAIL_USERNAME)) $config['username'] = MAIL_USERNAME;
+
+    if (getenv('SMTP_PASS') ?: getenv('SMTP_PASSWORD')) $config['password'] = getenv('SMTP_PASS') ?: getenv('SMTP_PASSWORD');
+    elseif (defined('MAIL_PASSWORD') && !empty(MAIL_PASSWORD)) $config['password'] = MAIL_PASSWORD;
+
+    if (getenv('SMTP_ENCRYPTION')) $config['encryption'] = getenv('SMTP_ENCRYPTION');
+    elseif (defined('MAIL_ENCRYPTION') && !empty(MAIL_ENCRYPTION)) $config['encryption'] = MAIL_ENCRYPTION;
+
+    if (getenv('SMTP_FROM_EMAIL')) $config['from_address'] = getenv('SMTP_FROM_EMAIL');
+    elseif (defined('MAIL_FROM_ADDRESS') && !empty(MAIL_FROM_ADDRESS)) $config['from_address'] = MAIL_FROM_ADDRESS;
+
+    if (getenv('SMTP_FROM_NAME')) $config['from_name'] = getenv('SMTP_FROM_NAME');
+    elseif (defined('MAIL_FROM_NAME') && !empty(MAIL_FROM_NAME)) $config['from_name'] = MAIL_FROM_NAME;
 
     return $config;
 }
@@ -77,10 +93,18 @@ function create_mailer(): PHPMailer {
         $mail->isSMTP();
         $mail->Host       = $config['host'];
         $mail->SMTPAuth   = true;
-        $mail->Username   = $config['username'];
-        $mail->Password   = $config['password'];
-        $mail->SMTPSecure = (strtolower($config['encryption']) === 'ssl') ? PHPMailer::ENCRYPTION_SMTPS : PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = (int)$config['port'];
+        $mail->Username   = trim($config['username']);
+        $mail->Password   = trim($config['password']);
+        
+        $port = (int)$config['port'];
+        $encryption = strtolower($config['encryption'] ?? '');
+        if ($port === 465 || $encryption === 'ssl') {
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+            $mail->Port       = 465;
+        } else {
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->Port       = !empty($port) ? $port : 587;
+        }
         $mail->Timeout    = 15;
 
         // Local SSL certificate compatibility

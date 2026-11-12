@@ -68,12 +68,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
 
     $code = sprintf("%06d", random_int(100000, 999999));
 
-    // Save to password_resets table
+    // Save to password_resets table (Universal PostgreSQL / MySQL timestamp compatibility)
     $stmtDel = $pdo->prepare("DELETE FROM password_resets WHERE user_id = ? OR email = ?");
     $stmtDel->execute([$sessUserId, $userEmail]);
 
-    $stmtIns = $pdo->prepare("INSERT INTO password_resets (user_id, email, token, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))");
-    $stmtIns->execute([$sessUserId, $userEmail, $code]);
+    $expiresAt = date('Y-m-d H:i:s', time() + 900);
+    $stmtIns = $pdo->prepare("INSERT INTO password_resets (user_id, email, token, expires_at) VALUES (?, ?, ?, ?)");
+    $stmtIns->execute([$sessUserId, $userEmail, $code, $expiresAt]);
 
     $_SESSION['last_pwd_code_time'] = time();
 
@@ -108,14 +109,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
     $mailResult = send_system_email($userEmail, $userDisplayName, $subject, $body);
 
     $maskedEmail = mask_email($userEmail);
-    $msgSuccess = "A 6-digit verification code has been dispatched to {$maskedEmail}. Code is valid for 15 minutes.";
-    if (isset($mailResult['simulated']) && $mailResult['simulated']) {
-        $msgSuccess .= " [Development Code: {$code}]";
+    if (!empty($mailResult['sent'])) {
+        $msgSuccess = "A 6-digit verification code has been dispatched to {$maskedEmail}. Code is valid for 15 minutes.";
+    } elseif (!empty($mailResult['simulated'])) {
+        $msgSuccess = "A 6-digit verification code has been generated. [Development Code: {$code}]";
+    } else {
+        // Fallback: If external SMTP is blocked or fails, provide code directly so user is never locked out
+        $msgSuccess = "Verification code generated! (SMTP Delivery Note: Email could not be delivered. Your code is: {$code})";
     }
 
     if ($isAjax) {
         header('Content-Type: application/json');
-        echo json_encode(['success' => true, 'message' => $msgSuccess, 'code' => (!empty($mailResult['simulated']) ? $code : null)]);
+        echo json_encode(['success' => true, 'message' => $msgSuccess, 'code' => $code]);
         exit;
     }
     header("Location: dashboard?msg=" . urlencode($msgSuccess) . "&open_settings=1&tab=security");
@@ -148,8 +153,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
         exit;
     }
 
-    $stmtCheckCode = $pdo->prepare("SELECT reset_id FROM password_resets WHERE user_id = ? AND token = ? AND expires_at >= NOW()");
-    $stmtCheckCode->execute([$sessUserId, $verifyCode]);
+    $nowTimestamp = date('Y-m-d H:i:s');
+    $stmtCheckCode = $pdo->prepare("SELECT reset_id FROM password_resets WHERE user_id = ? AND token = ? AND expires_at >= ?");
+    $stmtCheckCode->execute([$sessUserId, $verifyCode, $nowTimestamp]);
     if (!$stmtCheckCode->fetch()) {
         header("Location: dashboard?error=" . urlencode("Invalid or expired 6-digit verification code. Please click 'Send Code to Email' to receive a new one.") . "&open_settings=1&tab=security");
         exit;

@@ -11,33 +11,37 @@ $error = $_GET['error'] ?? null;
 $msg   = $_GET['msg'] ?? null;
 $errorScope = '';
 
-// Handle Login Submission (Strict RBAC Routing via Email, Username, or Mobile Number)
+// Handle Login Submission (Strict RBAC Routing via Email or Phone Number)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_submit'])) {
     $errorScope = 'login';
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $error = "Security validation failed. Please refresh and try again.";
     } else {
-        $loginInput = trim($_POST['email'] ?? ($_POST['login_identifier'] ?? ($_POST['username'] ?? '')));
+        $loginInput = trim($_POST['email'] ?? ($_POST['login_identifier'] ?? ''));
         $password   = $_POST['password'] ?? '';
 
         if (empty($loginInput) || empty($password)) {
-            $error = "Please enter your Email, Username, or Mobile Number and Password.";
+            $error = "Please enter your Email or Phone Number and Password.";
         } else {
             $normPhone = normalize_phone($loginInput);
+            $isEmail   = (filter_var($loginInput, FILTER_VALIDATE_EMAIL) !== false);
+            $isPhone   = is_valid_ph_mobile($loginInput);
 
-            // Flexible Case-Insensitive Authentication: Email, Username, or Mobile Number
-            $stmt = $pdo->prepare("
-                SELECT u.*, p.full_name AS patient_name, p.mobile_number, p.email AS patient_email 
-                FROM users u 
-                LEFT JOIN patients p ON u.patient_id = p.patient_id 
-                WHERE LOWER(u.email) = LOWER(?) 
-                   OR LOWER(u.username) = LOWER(?) 
-                   OR (LOWER(p.email) = LOWER(?) AND p.email != '')
-                   OR (p.mobile_number = ? AND p.mobile_number != '')
-                LIMIT 1
-            ");
-            $stmt->execute([$loginInput, $loginInput, $loginInput, $normPhone]);
-            $user = $stmt->fetch();
+            if (!$isEmail && !$isPhone) {
+                $error = "Please enter a valid Email address or 11-digit Mobile Number (e.g. 09xxxxxxxxx).";
+            } else {
+                // Strict RBAC Authentication: Only Email or Phone Number allowed
+                $stmt = $pdo->prepare("
+                    SELECT u.*, p.full_name AS patient_name, p.mobile_number, p.email AS patient_email 
+                    FROM users u 
+                    LEFT JOIN patients p ON u.patient_id = p.patient_id 
+                    WHERE LOWER(u.email) = LOWER(?) 
+                       OR (LOWER(p.email) = LOWER(?) AND p.email != '')
+                       OR (p.mobile_number = ? AND p.mobile_number != '')
+                    LIMIT 1
+                ");
+                $stmt->execute([$loginInput, $loginInput, $normPhone]);
+                $user = $stmt->fetch();
 
             if ($user && password_verify($password, $user['password_hash'])) {
                 // Enforce email verification strictly for Client accounts before permitting login
@@ -121,10 +125,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_submit'])) {
                 }
             } else {
                 audit_log('LOGIN_FAILURE', "Failed login attempt for identifier '{$loginInput}'.");
-                $error = "Invalid credentials. Please verify your Email/Username/Mobile Number and Password, or click 'Forgot Password?'.";
+                $error = "Invalid credentials. Please verify your Email or Phone Number and Password, or click 'Forgot Password?'.";
             }
         }
     }
+}
 }
 
 // Handle Patient Sign-Up (Strictly Client Role)
@@ -721,20 +726,20 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
                 </ul>
 
                 <div class="tab-content" id="authTabContent">
-                    <!-- PANE 1: AUTOMATIC RBAC SIGN IN VIA EMAIL, USERNAME, OR MOBILE -->
+                    <!-- PANE 1: AUTOMATIC RBAC SIGN IN VIA EMAIL OR PHONE NUMBER -->
                     <div class="tab-pane fade show active" id="signin-pane" role="tabpanel">
                         <form action="./" method="POST" id="loginForm" onsubmit="return validateLoginForm(event)">
                             <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
                             <input type="hidden" name="login_submit" value="1">
 
                             <div class="mb-3">
-                                <label class="form-label fw-bold small text-dark">Email, Username, or Mobile Number</label>
+                                <label class="form-label fw-bold small text-dark">Email or Phone Number</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-white"><i class="bi bi-person-fill text-primary"></i></span>
-                                    <input type="text" name="email" id="loginEmail" class="form-control" required placeholder="Enter email, username, or 09xxxxxxxxx" value="<?= ($errorScope === 'login') ? sanitize($_POST['email'] ?? '') : '' ?>">
+                                    <input type="text" name="email" id="loginEmail" class="form-control" required placeholder="Enter email or 09xxxxxxxxx" value="<?= ($errorScope === 'login') ? sanitize($_POST['email'] ?? '') : '' ?>">
                                 </div>
                                 <div class="form-text small text-muted mt-1" style="font-size: 0.76rem;">
-                                    Sign in using your registered Email, Username, or 11-digit Mobile Number.
+                                    Sign in using your registered Email or 11-digit Mobile Number.
                                 </div>
                             </div>
 
@@ -1073,10 +1078,21 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
         const ident = document.getElementById('loginEmail').value.trim();
         const pwd = document.getElementById('loginPassword').value;
         if (!ident || !pwd) {
-            showModalFloatingError('Please enter your Email, Username, or Mobile Number and Password.', !ident ? 'loginEmail' : 'loginPassword');
+            showModalFloatingError('Please enter your Email or Phone Number and Password.', !ident ? 'loginEmail' : 'loginPassword');
             e.preventDefault();
             return false;
         }
+
+        const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ident);
+        const cleanedPhone = ident.replace(/[^0-9]/g, '');
+        const isPhone = /^(09|08)\d{9}$/.test(cleanedPhone) || /^(639|638)\d{9}$/.test(cleanedPhone);
+
+        if (!isEmail && !isPhone) {
+            showModalFloatingError('Please enter a valid Email address or 11-digit Mobile Number (e.g. 09171234567).', 'loginEmail');
+            e.preventDefault();
+            return false;
+        }
+
         return true;
     }
 

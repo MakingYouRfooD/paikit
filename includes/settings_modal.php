@@ -136,20 +136,29 @@ require_once __DIR__ . '/security_alert_banner.php';
                                 <h6 class="fw-bold text-primary mb-3">
                                     <i class="bi bi-pencil-square me-1"></i> Update Contact & Address Information
                                 </h6>
-                                <form method="POST" action="dashboard">
+                                <form method="POST" action="dashboard" id="updateContactForm" onsubmit="return validateUpdateContactForm(event)">
                                     <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
                                     <input type="hidden" name="action" value="update_profile">
                                     
                                     <div class="row g-3">
                                         <div class="col-md-5">
-                                            <label class="form-label small fw-bold">Mobile / Contact Number</label>
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <label class="form-label small fw-bold mb-0">Mobile / Contact Number</label>
+                                                <span class="badge bg-light text-muted border" id="updateMobileDigitCount">0 / 11 digits</span>
+                                            </div>
                                             <div class="input-group">
                                                 <span class="input-group-text"><i class="bi bi-telephone"></i></span>
-                                                <input type="text" name="contact_number" class="form-control" 
+                                                <input type="tel" name="contact_number" id="updateContactNumber" class="form-control" 
                                                        value="<?= sanitize($modalPatient['contact_number'] ?? ($modalPatient['mobile_number'] ?? '')) ?>" 
-                                                       placeholder="09123456789" maxlength="15" required>
+                                                       placeholder="09171234567" required maxlength="11" minlength="11" 
+                                                       pattern="(09|08)[0-9]{9}" 
+                                                       title="Must be an 11-digit Philippine registered mobile number (e.g. 09171234567)" 
+                                                       oninput="handleUpdateMobileInput(this)">
                                             </div>
-                                            <div class="form-text small">11-digit Philippine mobile number.</div>
+                                            <div class="d-flex justify-content-between align-items-center mt-1">
+                                                <span class="form-text small text-muted" style="font-size: 0.72rem;">Globe, Smart, TM, TNT, Sun, DITO</span>
+                                                <span id="updateTelcoNetworkBadge" class="badge bg-light text-secondary border small" style="font-size: 0.72rem;">Enter PH Mobile</span>
+                                            </div>
                                         </div>
                                         
                                         <div class="col-md-7">
@@ -404,6 +413,72 @@ require_once __DIR__ . '/security_alert_banner.php';
 
 <!-- JAVASCRIPT LOGIC FOR SETTINGS MODAL & PASSWORD VALIDATION -->
 <script>
+    const updateGlobePrefixes = ['0905','0906','0915','0916','0917','0926','0927','0935','0936','0945','0953','0954','0955','0956','0965','0966','0967','0975','0977','0978','0979','0995','0996','0997','0817'];
+    const updateSmartPrefixes = ['0907','0908','0909','0910','0911','0912','0913','0914','0918','0919','0920','0921','0922','0923','0924','0925','0928','0929','0930','0931','0932','0933','0934','0938','0939','0940','0941','0942','0943','0946','0947','0948','0949','0950','0951','0961','0962','0963','0964','0968','0969','0970','0971','0981','0982','0985','0989','0998','0999','0813'];
+    const updateDitoPrefixes  = ['0991','0992','0993','0994','0895','0896','0897','0898'];
+
+    function handleUpdateMobileInput(el) {
+        if (!el) return;
+        el.value = el.value.replace(/[^0-9]/g, '').slice(0, 11);
+        const countBadge = document.getElementById('updateMobileDigitCount');
+        const telcoBadge = document.getElementById('updateTelcoNetworkBadge');
+        const len = el.value.length;
+
+        if (countBadge) {
+            countBadge.textContent = len + ' / 11 digits';
+            if (len === 11 && (el.value.startsWith('09') || el.value.startsWith('08'))) {
+                countBadge.className = 'badge bg-success-subtle text-success border border-success';
+            } else {
+                countBadge.className = 'badge bg-light text-danger border border-danger';
+            }
+        }
+
+        if (telcoBadge) {
+            if (len >= 4) {
+                const p = el.value.substring(0, 4);
+                if (updateGlobePrefixes.includes(p)) {
+                    telcoBadge.className = 'badge bg-primary text-white border small';
+                    telcoBadge.textContent = 'Globe / TM';
+                } else if (updateSmartPrefixes.includes(p)) {
+                    telcoBadge.className = 'badge bg-success text-white border small';
+                    telcoBadge.textContent = 'Smart / TNT / Sun';
+                } else if (updateDitoPrefixes.includes(p)) {
+                    telcoBadge.className = 'badge bg-danger text-white border small';
+                    telcoBadge.textContent = 'DITO Telecommunity';
+                } else if (el.value.startsWith('09') || el.value.startsWith('08')) {
+                    telcoBadge.className = 'badge bg-info text-dark border small';
+                    telcoBadge.textContent = 'PH Mobile Number';
+                } else {
+                    telcoBadge.className = 'badge bg-danger text-white border small';
+                    telcoBadge.textContent = 'Invalid PH Prefix';
+                }
+            } else {
+                telcoBadge.className = 'badge bg-light text-secondary border small';
+                telcoBadge.textContent = 'Enter PH Mobile';
+            }
+        }
+    }
+
+    function validateUpdateContactForm(e) {
+        const input = document.getElementById('updateContactNumber');
+        if (!input) return true;
+        const mobile = input.value.trim();
+        if (!/^(09|08)[0-9]{9}$/.test(mobile)) {
+            alert('Mobile number must be a valid 11-digit Philippine mobile number starting with 09 or 08 (e.g. 09171234567).');
+            input.focus();
+            if (e) e.preventDefault();
+            return false;
+        }
+        return true;
+    }
+
+    function initUpdateMobileValidation() {
+        const input = document.getElementById('updateContactNumber');
+        if (input) {
+            handleUpdateMobileInput(input);
+        }
+    }
+
     function openSettingsModal(tabName) {
         const modalEl = document.getElementById('settingsModal');
         if (!modalEl) {
@@ -412,6 +487,7 @@ require_once __DIR__ . '/security_alert_banner.php';
         }
         const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         modal.show();
+        initUpdateMobileValidation();
         if (tabName === 'security') {
             const secTab = document.getElementById('security-tab');
             if (secTab) bootstrap.Tab.getOrCreateInstance(secTab).show();
@@ -571,8 +647,13 @@ require_once __DIR__ . '/security_alert_banner.php';
         });
     }
 
-    // Auto-open settings modal if requested via URL parameters
+    // Auto-open settings modal if requested via URL parameters and initialize inputs
     window.addEventListener('DOMContentLoaded', () => {
+        initUpdateMobileValidation();
+        const settingsModalEl = document.getElementById('settingsModal');
+        if (settingsModalEl) {
+            settingsModalEl.addEventListener('shown.bs.modal', initUpdateMobileValidation);
+        }
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('open_settings') === '1') {
             openSettingsModal(urlParams.get('tab') || 'profile');

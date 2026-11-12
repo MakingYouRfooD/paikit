@@ -207,10 +207,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
         $sitio         = trim($_POST['sitio'] ?? '');
         $streetAddress = trim($_POST['street_address'] ?? '');
 
-        if (!empty($contactNumber) && !preg_match('/^09\d{9}$/', $contactNumber)) {
-            header("Location: dashboard?error=" . urlencode("Mobile number must be exactly 11 digits starting with 09 (e.g. 09123456789).") . "&open_settings=1&tab=profile");
+        $cleanedMobile = normalize_phone($contactNumber);
+        if (empty($cleanedMobile) || !is_valid_ph_mobile($cleanedMobile)) {
+            header("Location: dashboard?error=" . urlencode("Mobile number must be a valid 11-digit Philippine mobile number starting with 09 or 08 (e.g. 09171234567).") . "&open_settings=1&tab=profile");
             exit;
         }
+        $contactNumber = $cleanedMobile;
 
         if (!empty($sitio) && !is_valid_canlubang_sitio($sitio)) {
             header("Location: dashboard?error=" . urlencode("Please select an official area/sitio in Barangay Canlubang.") . "&open_settings=1&tab=profile");

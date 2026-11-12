@@ -184,9 +184,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <span class="input-group-text bg-light text-muted"><i class="bi bi-envelope"></i></span>
                                     <input type="email" name="email" id="emailInput" class="form-control" placeholder="e.g. juan.delacruz@gmail.com" required autofocus value="<?= sanitize($_POST['email'] ?? '') ?>">
                                 </div>
-                                <div class="form-text small text-muted" style="font-size: 0.75rem;">
-                                    We will dispatch a secure, single-use password reset link powered by PHPMailer.
-                                </div>
                             </div>
 
                             <button type="submit" class="btn btn-primary w-100 fw-bold py-2 shadow-sm mb-3">

@@ -153,8 +153,9 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
     if ($isCloudOrRender && !empty($brevoKey)) {
         try {
             $ch = curl_init('https://api.brevo.com/v3/smtp/email');
+            $brevoSenderEmail = getenv('BREVO_FROM_EMAIL') ?: ($config['brevo_from_email'] ?? 'delosangelesjanjan@gmail.com');
             $payload = json_encode([
-                'sender'      => ['name' => $config['from_name'], 'email' => $config['from_address']],
+                'sender'      => ['name' => $config['from_name'], 'email' => $brevoSenderEmail],
                 'to'          => [['email' => $toEmail, 'name' => $toName]],
                 'subject'     => $subject,
                 'htmlContent' => $htmlBody
@@ -213,8 +214,9 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
     if (!empty($brevoKey)) {
         try {
             $ch = curl_init('https://api.brevo.com/v3/smtp/email');
+            $brevoSenderEmail = getenv('BREVO_FROM_EMAIL') ?: ($config['brevo_from_email'] ?? 'delosangelesjanjan@gmail.com');
             $payload = json_encode([
-                'sender'      => ['name' => $config['from_name'], 'email' => $config['from_address']],
+                'sender'      => ['name' => $config['from_name'], 'email' => $brevoSenderEmail],
                 'to'          => [['email' => $toEmail, 'name' => $toName]],
                 'subject'     => $subject,
                 'htmlContent' => $htmlBody

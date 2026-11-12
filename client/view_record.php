@@ -126,12 +126,46 @@ $verifyUrl = "http://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . "/paikit/clien
         }
         .paper-record {
             background-color: #ffffff;
-            border-radius: 8px;
+            border-radius: 12px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             max-width: 820px;
             margin: 30px auto;
             padding: 40px;
             position: relative;
+        }
+        @media (max-width: 767.98px) {
+            .paper-record {
+                margin: 12px auto !important;
+                padding: 20px 14px !important;
+                border-radius: 12px !important;
+            }
+            .clinic-header {
+                padding-bottom: 10px !important;
+                margin-bottom: 16px !important;
+            }
+            .clinic-header img {
+                width: 60px !important;
+                height: 60px !important;
+            }
+            .rx-symbol {
+                font-size: 2.2rem !important;
+            }
+            .signature-line {
+                width: 200px !important;
+                margin: 25px 0 5px auto !important;
+            }
+            .watermark {
+                font-size: 2.4rem !important;
+            }
+            .no-print .container {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 0.5rem !important;
+            }
+            .no-print .d-flex {
+                flex-wrap: wrap !important;
+                justify-content: center !important;
+            }
         }
         .clinic-header {
             border-bottom: 3px double #0d6efd;

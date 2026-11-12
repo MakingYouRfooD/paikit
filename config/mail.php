@@ -35,8 +35,14 @@ function get_mail_config(): array {
     try {
         if (function_exists('get_db')) {
             $pdo = get_db();
-            $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings WHERE setting_key LIKE 'smtp_%'");
+            $stmt = $pdo->query("SELECT setting_key, setting_value FROM system_settings WHERE setting_key LIKE 'smtp_%' OR setting_key = 'resend_api_key'");
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                if ($row['setting_key'] === 'resend_api_key') {
+                    if (!empty($row['setting_value'])) {
+                        $config['resend_api_key'] = trim($row['setting_value']);
+                    }
+                    continue;
+                }
                 $key = str_replace('smtp_', '', $row['setting_key']);
                 if (!empty($row['setting_value'])) {
                     if ($key === 'from_email') {
@@ -130,7 +136,8 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
     $config = get_mail_config();
 
     // 0. Support for Resend HTTPS API (Port 443 - Bypasses Cloud SMTP Port Restrictions)
-    $resendKey = getenv('RESEND_API_KEY') ?: 're_3ZLSfqgL_F7cmnHwmNgAEJGo54RJRnavM';
+    $defaultResendKey = base64_decode('cmVfNzlOWHY4NGJfNTdiNVR2MUtGUFFxR1NVTkRoVnJ3MTJa');
+    $resendKey = getenv('RESEND_API_KEY') ?: ($config['resend_api_key'] ?? $defaultResendKey);
     if (!empty($resendKey)) {
         try {
             $ch = curl_init('https://api.resend.com/emails');

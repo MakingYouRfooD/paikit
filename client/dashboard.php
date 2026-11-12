@@ -730,11 +730,14 @@ if ($activeTicket) {
                 bottom: 0;
                 left: 0;
                 right: 0;
-                background: #ffffff;
-                border-top: 1px solid #e2e8f0;
+                background: rgba(255, 255, 255, 0.98);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border-top: 1px solid #cbd5e1;
                 padding: 0.4rem 0.5rem;
+                padding-bottom: max(0.45rem, env(safe-area-inset-bottom));
                 z-index: 1040;
-                box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+                box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
                 justify-content: space-around;
             }
             .mobile-nav-link {
@@ -746,14 +749,22 @@ if ($activeTicket) {
                 font-weight: 600;
                 color: #64748b;
                 text-decoration: none;
-                padding: 0.3rem 0;
+                padding: 0.35rem 0.6rem;
+                border-radius: 12px;
+                transition: all 0.2s ease;
+                min-width: 60px;
+            }
+            .mobile-nav-link i {
+                font-size: 1.25rem;
+                margin-bottom: 2px;
             }
             .mobile-nav-link.active {
-                color: #059669;
+                color: #15803d;
                 font-weight: 800;
+                background-color: #f0fdf4;
             }
             body.client-portal-body {
-                padding-bottom: 75px !important;
+                padding-bottom: calc(75px + env(safe-area-inset-bottom)) !important;
             }
         }
     </style>

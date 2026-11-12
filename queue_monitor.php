@@ -189,6 +189,36 @@ $schedule = $stmtSched->fetch();
             padding: 0.35rem 0.75rem;
             border-radius: 20px;
         }
+        @media (max-width: 767.98px) {
+            .header-bar {
+                padding: 0.75rem 1rem !important;
+            }
+            .header-bar .container-fluid {
+                flex-direction: column !important;
+                align-items: center !important;
+                gap: 0.65rem !important;
+                text-align: center !important;
+            }
+            .header-bar .brand-logo-circle {
+                width: 42px !important;
+                height: 42px !important;
+            }
+            .header-bar h4 {
+                font-size: 1.1rem !important;
+            }
+            .header-bar .text-white-50 {
+                font-size: 0.68rem !important;
+            }
+            .ticket-number-huge {
+                font-size: 3.5rem !important;
+                margin: 0.75rem 0 !important;
+            }
+            .sub-header-details .container-fluid {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                gap: 0.35rem !important;
+            }
+        }
     </style>
 </head>
 <body class="d-flex flex-column min-vh-100">
@@ -216,7 +246,7 @@ $schedule = $stmtSched->fetch();
 </header>
 
 <!-- Sub-header Clinic Details -->
-<div class="bg-white py-2 px-4 border-bottom shadow-sm">
+<div class="sub-header-details bg-white py-2 px-3 border-bottom shadow-sm">
     <div class="container-fluid d-flex justify-content-between align-items-center small">
         <div class="d-flex align-items-center gap-2">
             <span class="text-muted">Physician On Duty:</span>

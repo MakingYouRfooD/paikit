@@ -16,12 +16,36 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Database Credentials (Local XAMPP Environment)
-define('DB_HOST', '127.0.0.1');
-define('DB_NAME', 'paikit_health_center');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+// Database Credentials & Environment Configuration
+// Automatically detects Supabase (PostgreSQL) or local XAMPP (MySQL)
+define('ENV_DB_URL', getenv('DATABASE_URL') ?: (getenv('SUPABASE_DB_URL') ?: ''));
+define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
+define('DB_PORT', getenv('DB_PORT') ?: '');
+define('DB_NAME', getenv('DB_NAME') ?: 'paikit_health_center');
+define('DB_USER', getenv('DB_USER') ?: 'root');
+define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');
 define('DB_CHARSET', 'utf8mb4');
+
+/**
+ * Custom PDO wrapper to ensure seamless lastInsertId() support on PostgreSQL / Supabase
+ */
+class AppPDO extends PDO {
+    public function lastInsertId(?string $name = null): string|false {
+        $driver = $this->getAttribute(PDO::ATTR_DRIVER_NAME);
+        if ($driver === 'pgsql') {
+            if ($name !== null && $name !== '') {
+                return parent::lastInsertId($name);
+            }
+            try {
+                $val = $this->query("SELECT LASTVAL()")->fetchColumn();
+                return $val !== false ? (string)$val : false;
+            } catch (Throwable $e) {
+                return parent::lastInsertId();
+            }
+        }
+        return parent::lastInsertId($name);
+    }
+}
 
 /**
  * Returns singleton PDO connection instance.
@@ -29,14 +53,48 @@ define('DB_CHARSET', 'utf8mb4');
 function get_db(): PDO {
     static $pdo = null;
     if ($pdo === null) {
-        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
+        $dbUrl = ENV_DB_URL;
+        $driver = 'mysql';
+
+        if (!empty($dbUrl)) {
+            // Parse complete connection URI (e.g. Supabase postgresql://...)
+            $parsed = parse_url($dbUrl);
+            $driver = 'pgsql';
+            $host   = $parsed['host'] ?? '127.0.0.1';
+            $port   = $parsed['port'] ?? 5432;
+            $user   = isset($parsed['user']) ? urldecode($parsed['user']) : 'postgres';
+            $pass   = isset($parsed['pass']) ? urldecode($parsed['pass']) : '';
+            $dbname = ltrim($parsed['path'] ?? 'postgres', '/');
+            $dsn    = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode=require";
+        } else {
+            $envDriver = getenv('DB_DRIVER');
+            $port = DB_PORT;
+            if (!empty($envDriver)) {
+                $driver = strtolower($envDriver);
+            } elseif ($port === '5432' || $port === '6543') {
+                $driver = 'pgsql';
+            }
+
+            if ($driver === 'pgsql') {
+                $portNum = !empty($port) ? $port : 5432;
+                $sslmode = getenv('DB_SSLMODE') ?: 'require';
+                $dsn = "pgsql:host=" . DB_HOST . ";port={$portNum};dbname=" . DB_NAME . ";sslmode={$sslmode}";
+            } else {
+                $portNum = !empty($port) ? $port : 3306;
+                $dsn = "mysql:host=" . DB_HOST . ";port={$portNum};dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
+            }
+            $user = DB_USER;
+            $pass = DB_PASS;
+        }
+
         $options = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => false,
         ];
+
         try {
-            $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+            $pdo = new AppPDO($dsn, $user, $pass, $options);
         } catch (PDOException $e) {
             // Under RA 10173, prevent disclosing database connection strings or internals to end-users
             error_log("Database Connection Error: " . $e->getMessage());

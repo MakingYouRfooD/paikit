@@ -251,7 +251,7 @@ if ($action === 'save_encounter') {
     // Update Encounter
     $stmtEnc = $pdo->prepare("
         UPDATE encounters 
-        SET queue_status = ?, completed_at = IF(? = 'Completed', NOW(), completed_at), complaint = ?, vital_signs = ?, diagnostic_notes = ? 
+        SET queue_status = ?, completed_at = CASE WHEN ? = 'Completed' THEN NOW() ELSE completed_at END, complaint = ?, vital_signs = ?, diagnostic_notes = ? 
         WHERE encounter_id = ?
     ");
     $stmtEnc->execute([$queueStatus, $queueStatus, $complaint, $vitalsJson, $diagAssessment, $encounterId]);

@@ -602,11 +602,20 @@ if ($action === 'save_smtp_settings') {
         $settings['smtp_password'] = $password;
     }
 
-    $stmtUp = $pdo->prepare("
-        INSERT INTO system_settings (setting_key, setting_value) 
-        VALUES (?, ?) 
-        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
-    ");
+    $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+    if ($driver === 'pgsql') {
+        $stmtUp = $pdo->prepare("
+            INSERT INTO system_settings (setting_key, setting_value) 
+            VALUES (?, ?) 
+            ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value
+        ");
+    } else {
+        $stmtUp = $pdo->prepare("
+            INSERT INTO system_settings (setting_key, setting_value) 
+            VALUES (?, ?) 
+            ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+        ");
+    }
 
     foreach ($settings as $k => $v) {
         $stmtUp->execute([$k, $v]);

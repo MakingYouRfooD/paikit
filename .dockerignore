@@ -1,0 +1,7 @@
+.git
+.github
+.gitignore
+*.sql
+!supabase_schema.sql
+logs/*.log
+logs/*.html

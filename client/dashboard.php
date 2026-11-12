@@ -176,17 +176,18 @@ $pendingAppointments = $stmtPending->fetchAll();
 $pendingCount = count($pendingAppointments);
 
 // Also fetch recently declined appointment (if any within last 7 days) to explain to the patient
+$sevenDaysAgo = date('Y-m-d 00:00:00', strtotime('-7 days'));
 $stmtRecentDeclined = $pdo->prepare("
     SELECT e.*, u.full_name as reviewer_name 
     FROM encounters e
     LEFT JOIN users u ON e.reviewed_by = u.user_id
     WHERE e.patient_id = ? 
       AND e.approval_status = 'Declined'
-      AND DATE(e.visit_date) >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+      AND e.visit_date >= ?
     ORDER BY e.reviewed_at DESC, e.encounter_id DESC 
     LIMIT 1
 ");
-$stmtRecentDeclined->execute([$patientId]);
+$stmtRecentDeclined->execute([$patientId, $sevenDaysAgo]);
 $recentDeclined = $stmtRecentDeclined->fetch();
 
 $isTicketToday = ($activeTicket && date('Y-m-d', strtotime($activeTicket['visit_date'])) === $today);

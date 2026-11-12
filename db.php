@@ -321,9 +321,50 @@ function generate_queue_number(PDO $pdo, string $prefix = 'W', ?string $targetDa
     $dayStart = $date . ' 00:00:00';
     $dayEnd   = $date . ' 23:59:59';
 
-    $stmt = $pdo->prepare("SELECT MAX(CAST(SUBSTRING(queue_number, 3) AS UNSIGNED)) FROM encounters WHERE visit_date BETWEEN ? AND ? AND queue_number LIKE ?");
-    $stmt->execute([$dayStart, $dayEnd, $prefix . '-%']);
-    $maxNum = (int)$stmt->fetchColumn();
+    $maxNum = 0;
+    try {
+        $driver = 'mysql';
+        try {
+            $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+        } catch (Throwable $e) {}
+
+        if ($driver === 'pgsql') {
+            // PostgreSQL / Supabase ANSI cast
+            $stmt = $pdo->prepare("
+                SELECT COALESCE(MAX(CAST(NULLIF(SUBSTRING(queue_number FROM 3), '') AS INTEGER)), 0)
+                FROM encounters 
+                WHERE visit_date BETWEEN ?::timestamp AND ?::timestamp 
+                  AND queue_number LIKE ?
+            ");
+        } else {
+            // MySQL / MariaDB CAST as INTEGER
+            $stmt = $pdo->prepare("
+                SELECT COALESCE(MAX(CAST(SUBSTRING(queue_number, 3) AS INTEGER)), 0) 
+                FROM encounters 
+                WHERE visit_date BETWEEN ? AND ? 
+                  AND queue_number LIKE ?
+            ");
+        }
+        $stmt->execute([$dayStart, $dayEnd, $prefix . '-%']);
+        $maxNum = (int)$stmt->fetchColumn();
+    } catch (Throwable $e) {
+        // Robust PHP regex extraction fallback: ensures booking never breaks even if SQL dialect differs
+        try {
+            $stmt = $pdo->prepare("SELECT queue_number FROM encounters WHERE visit_date BETWEEN ? AND ? AND queue_number LIKE ?");
+            $stmt->execute([$dayStart, $dayEnd, $prefix . '-%']);
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $qNum = $row['queue_number'] ?? '';
+                if (preg_match('/^' . preg_quote($prefix, '/') . '-(\d+)$/', $qNum, $m)) {
+                    $val = (int)$m[1];
+                    if ($val > $maxNum) {
+                        $maxNum = $val;
+                    }
+                }
+            }
+        } catch (Throwable $e2) {
+            // Keep default 0
+        }
+    }
 
     $nextNum = $maxNum + 1;
     return sprintf("%s-%03d", $prefix, $nextNum);

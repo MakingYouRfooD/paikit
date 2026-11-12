@@ -25,10 +25,10 @@ function get_mail_config(): array {
     $config = [
         'host'         => 'smtp.gmail.com',
         'port'         => 587,
-        'username'     => '',
-        'password'     => '',
+        'username'     => 'warcurry590@gmail.com',
+        'password'     => 'best ukrq envy hxnl',
         'encryption'   => 'tls',
-        'from_address' => 'paikithealthcenter@gmail.com',
+        'from_address' => 'warcurry590@gmail.com',
         'from_name'    => 'Paikit Health Center'
     ];
 
@@ -131,6 +131,66 @@ function create_mailer(): PHPMailer {
  */
 function send_system_email(string $toEmail, string $toName, string $subject, string $htmlBody, string $altBody = ''): array {
     $config = get_mail_config();
+
+    // 0. Support for Resend HTTPS API (Port 443 - Bypasses Cloud SMTP Port Restrictions)
+    $resendKey = getenv('RESEND_API_KEY') ?: '';
+    if (!empty($resendKey)) {
+        try {
+            $ch = curl_init('https://api.resend.com/emails');
+            $sender = (!empty($config['from_address']) && !str_contains($config['from_address'], '@gmail.com')) 
+                ? "{$config['from_name']} <{$config['from_address']}>" 
+                : 'Paikit Health Center <onboarding@resend.dev>';
+            $payload = json_encode([
+                'from'    => $sender,
+                'to'      => [$toEmail],
+                'subject' => $subject,
+                'html'    => $htmlBody
+            ]);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Authorization: Bearer ' . trim($resendKey),
+                'Content-Type: application/json'
+            ]);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+            $res = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($code >= 200 && $code < 300) {
+                return ['success' => true, 'sent' => true, 'simulated' => false, 'error' => null];
+            }
+        } catch (\Throwable $e) {}
+    }
+
+    // 0.1 Support for Brevo HTTPS API (Port 443 - Bypasses Cloud SMTP Port Restrictions)
+    $brevoKey = getenv('BREVO_API_KEY') ?: '';
+    if (!empty($brevoKey)) {
+        try {
+            $ch = curl_init('https://api.brevo.com/v3/smtp/email');
+            $payload = json_encode([
+                'sender'      => ['name' => $config['from_name'], 'email' => $config['from_address']],
+                'to'          => [['email' => $toEmail, 'name' => $toName]],
+                'subject'     => $subject,
+                'htmlContent' => $htmlBody
+            ]);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'api-key: ' . trim($brevoKey),
+                'Content-Type: application/json',
+                'Accept: application/json'
+            ]);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+            $res = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($code >= 200 && $code < 300) {
+                return ['success' => true, 'sent' => true, 'simulated' => false, 'error' => null];
+            }
+        } catch (\Throwable $e) {}
+    }
 
     // 1. If SMTP credentials exist, send live email over the internet
     if (!empty($config['username']) && !empty($config['password'])) {

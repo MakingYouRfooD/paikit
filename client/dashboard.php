@@ -46,11 +46,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['book_appointm
         }
         $complaint       = trim($_POST['complaint'] ?? 'General Outpatient Consultation');
 
-        // Check 0: Validate format & past date
+        // Check 0: Validate format, past date, and same-day afternoon cutoff
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $appointmentDate)) {
             $error = "Please select a valid consultation date.";
         } elseif ($appointmentDate < date('Y-m-d')) {
             $error = "Cannot book for past dates. Please select today or an upcoming weekday.";
+        } elseif ($appointmentDate === date('Y-m-d') && (int)date('G') >= 12) {
+            $error = "Same-day appointment booking is only permitted before 12:00 PM (Noon). Online booking for today is now closed for the afternoon. You may visit the clinic as a walk-in patient at the triage desk or book for tomorrow.";
         } else {
             // Check 1: Exclude Saturday (6) and Sunday (7 / 0)
             $dayOfWeek = (int)date('N', strtotime($appointmentDate));
@@ -362,11 +364,21 @@ if ($activeTicket) {
             if (!input || !input.value) return false;
             const val = input.value;
             const todayStr = '<?= date('Y-m-d') ?>';
+            const isAfternoon = <?= ((int)date('G') >= 12) ? 'true' : 'false' ?>;
+            const tomorrowStr = '<?= date('Y-m-d', strtotime('+1 day')) ?>';
+
             if (val < todayStr) {
-                alert('Notice: Cannot select past dates. Please choose today or an upcoming weekday.');
-                input.value = todayStr;
+                alert('Notice: Cannot select past dates. Please choose an upcoming weekday.');
+                input.value = isAfternoon ? tomorrowStr : todayStr;
                 return false;
             }
+
+            if (val === todayStr && isAfternoon) {
+                alert('Notice: Same-day appointment booking is only allowed in the morning before 12:00 PM (Noon). Online booking for today is now closed for the afternoon. Please select tomorrow or an upcoming weekday, or visit the clinic as a walk-in patient.');
+                input.value = tomorrowStr;
+                return false;
+            }
+
             const parts = val.split('-');
             const dt = new Date(parts[0], parts[1] - 1, parts[2]);
             const day = dt.getDay(); // 0 is Sunday, 6 is Saturday
@@ -387,10 +399,18 @@ if ($activeTicket) {
         }
 
         function selectBookingDate(dateStr) {
+            const todayStr = '<?= date('Y-m-d') ?>';
+            const isAfternoon = <?= ((int)date('G') >= 12) ? 'true' : 'false' ?>;
+
+            if (dateStr === todayStr && isAfternoon) {
+                alert('Notice: Same-day appointment booking is only allowed before 12:00 PM (Noon). Online booking for today is now closed for the afternoon. Please select tomorrow or an upcoming date, or visit as a walk-in patient.');
+                return;
+            }
+
             const input = document.getElementById('apptDateInput');
             if (input) {
                 input.value = dateStr;
-                checkApptDay(input);
+                if (!checkApptDay(input)) return;
             }
             const modalEl = document.getElementById('bookModal');
             if (modalEl) {
@@ -1363,6 +1383,11 @@ if ($activeTicket) {
                                 $cellClass = 'is-unavailable';
                                 $badgeText = 'Doc Leave';
                                 $badgeClass = 'bg-danger text-white';
+                            } elseif ($docAvailable && $isToday && (int)date('G') >= 12) {
+                                $cellClass = 'is-unavailable';
+                                $badgeText = 'Closed (PM)';
+                                $badgeClass = 'bg-secondary text-white';
+                                $canBook = false;
                             } elseif ($isQuotaFull) {
                                 $cellClass = 'is-unavailable';
                                 $badgeText = 'Full (50)';
@@ -1640,10 +1665,23 @@ if ($activeTicket) {
                 <div class="modal-body p-4">
                     <div class="mb-3">
                         <label class="form-label fw-bold small text-dark">Consultation Date</label>
-                        <input type="date" name="appointment_date" id="apptDateInput" class="form-control" value="<?= date('Y-m-d') ?>" min="<?= date('Y-m-d') ?>" onchange="checkApptDay(this)" required>
+                        <?php
+                            $isAfternoonNow = ((int)date('G') >= 12);
+                            $minDateVal = $isAfternoonNow ? date('Y-m-d', strtotime('+1 day')) : date('Y-m-d');
+                        ?>
+                        <input type="date" name="appointment_date" id="apptDateInput" class="form-control" value="<?= $minDateVal ?>" min="<?= $minDateVal ?>" onchange="checkApptDay(this)" required>
                         <small class="text-primary d-block mt-1">
                             <i class="bi bi-calendar-check me-1"></i>Open: <strong>Monday to Friday only</strong> (Closed on Saturdays and Sundays).
                         </small>
+                        <?php if ($isAfternoonNow): ?>
+                            <div class="alert alert-warning py-1 px-2 mt-2 mb-0" style="font-size: 0.75rem;">
+                                <i class="bi bi-clock-history me-1"></i> <strong>Afternoon Cutoff:</strong> Same-day online booking is available in the morning before 12:00 PM (Noon) only. For today, in-person walk-in consultation is available at the clinic triage desk.
+                            </div>
+                        <?php else: ?>
+                            <small class="text-success d-block mt-1" style="font-size: 0.75rem;">
+                                <i class="bi bi-check2-circle me-1"></i> Same-day booking is open until <strong>12:00 PM (Noon)</strong> today.
+                            </small>
+                        <?php endif; ?>
                     </div>
 
                     <div class="mb-3">
@@ -1808,10 +1846,18 @@ if ($activeTicket) {
     }
 
     function openBookingModalForDate(dateStr) {
+        const todayStr = '<?= date('Y-m-d') ?>';
+        const isAfternoon = <?= ((int)date('G') >= 12) ? 'true' : 'false' ?>;
+
+        if (dateStr === todayStr && isAfternoon) {
+            alert('Notice: Same-day appointment booking is only allowed before 12:00 PM (Noon). Online booking for today is now closed for the afternoon. Please select tomorrow or an upcoming weekday, or visit the clinic as a walk-in patient.');
+            return;
+        }
+
         const input = document.getElementById('apptDateInput');
         if (input) {
             input.value = dateStr;
-            checkApptDay(input);
+            if (!checkApptDay(input)) return;
         }
         const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('bookModal'));
         modal.show();

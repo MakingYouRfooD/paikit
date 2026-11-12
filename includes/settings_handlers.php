@@ -110,21 +110,24 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
 
     $maskedEmail = mask_email($userEmail);
     if (!empty($mailResult['sent'])) {
-        $msgSuccess = "A 6-digit verification code has been dispatched to {$maskedEmail}. Code is valid for 15 minutes.";
-    } elseif (!empty($mailResult['simulated'])) {
-        $msgSuccess = "A 6-digit verification code has been generated. [Development Code: {$code}]";
+        $msgSuccess = "A 6-digit verification code has been successfully dispatched to {$maskedEmail}. Please check your Gmail inbox (valid for 15 minutes).";
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => true, 'message' => $msgSuccess]);
+            exit;
+        }
+        header("Location: dashboard?msg=" . urlencode($msgSuccess) . "&open_settings=1&tab=security");
+        exit;
     } else {
-        // Fallback: If external SMTP is blocked or fails, provide code directly so user is never locked out
-        $msgSuccess = "Verification code generated! (SMTP Delivery Note: Email could not be delivered. Your code is: {$code})";
-    }
-
-    if ($isAjax) {
-        header('Content-Type: application/json');
-        echo json_encode(['success' => true, 'message' => $msgSuccess, 'code' => $code]);
+        $errDelivery = "Email delivery failed: " . ($mailResult['error'] ?? 'Unable to reach mail server.');
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => $errDelivery]);
+            exit;
+        }
+        header("Location: dashboard?error=" . urlencode($errDelivery) . "&open_settings=1&tab=security");
         exit;
     }
-    header("Location: dashboard?msg=" . urlencode($msgSuccess) . "&open_settings=1&tab=security");
-    exit;
 }
 
 // --------------------------------------------------------------------------

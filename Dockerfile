@@ -1,8 +1,11 @@
 # Paikit Health Center - Render Dockerfile
 FROM php:8.2-apache
 
-# Install required PHP extensions for MySQL and general operations
-RUN docker-php-ext-install pdo pdo_mysql mysqli
+# Install ca-certificates and required PHP extensions for MySQL
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && docker-php-ext-install pdo pdo_mysql mysqli \
+    && rm -rf /var/lib/apt/lists/*
 
 # Enable Apache rewrite module for clean URLs (.htaccess)
 RUN a2enmod rewrite

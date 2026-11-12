@@ -17,9 +17,9 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // Database Credentials (Supports Cloud Environment Variables with Local XAMPP Fallback)
-define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
-define('DB_PORT', getenv('DB_PORT') ?: '3306');
-define('DB_NAME', getenv('DB_NAME') ?: 'paikit_health_center');
+define('DB_HOST', getenv('DB_HOST') ?: (getenv('DB_SSL') ? 'gateway01.ap-southeast-1.prod.aws.tidbcloud.com' : '127.0.0.1'));
+define('DB_PORT', getenv('DB_PORT') ?: (getenv('DB_SSL') ? '4000' : '3306'));
+define('DB_NAME', getenv('DB_NAME') ?: 'test');
 define('DB_USER', getenv('DB_USER') ?: 'root');
 define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');
 define('DB_CHARSET', getenv('DB_CHARSET') ?: 'utf8mb4');
@@ -37,9 +37,14 @@ function get_db(): PDO {
             PDO::ATTR_EMULATE_PREPARES   => false,
         ];
         
-        // Optional SSL support for cloud databases (e.g., TiDB Cloud, Aiven)
+        // SSL support for cloud databases (e.g., TiDB Cloud, Aiven)
         if (getenv('DB_SSL') === 'true' || getenv('DB_SSL') === '1') {
             $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
+            if (file_exists('/etc/ssl/certs/ca-certificates.crt')) {
+                $options[PDO::MYSQL_ATTR_SSL_CA] = '/etc/ssl/certs/ca-certificates.crt';
+            } else {
+                $options[PDO::MYSQL_ATTR_SSL_CA] = true;
+            }
         }
 
         try {

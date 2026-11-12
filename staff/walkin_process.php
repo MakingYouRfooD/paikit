@@ -55,6 +55,12 @@ if ($action === 'register_walkin') {
         exit;
     }
 
+    $todayStr = date('Y-m-d');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $birthDate) || $birthDate > $todayStr || $birthDate < '1900-01-01') {
+        header("Location: dashboard?error=" . urlencode("Invalid birth date: Please select a valid date between January 1, 1900 and today."));
+        exit;
+    }
+
     if (!is_valid_person_name($firstName, 2)) {
         header("Location: dashboard?error=" . urlencode("Invalid First Name: Numbers, spaces only, or ghost names are prohibited. Must contain at least 2 letters and max 2 consecutive identical letters."));
         exit;

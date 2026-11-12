@@ -1153,7 +1153,7 @@ $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs WHERE act
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label fw-bold">Birth Date</label>
-                                        <input type="date" name="birth_date" class="form-control" required>
+                                        <input type="date" name="birth_date" id="walkinBirthDate" class="form-control" min="1900-01-01" max="<?= date('Y-m-d') ?>" required>
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label fw-bold">Gender</label>
@@ -2015,6 +2015,22 @@ $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs WHERE act
                 url.searchParams.delete('msg');
                 window.history.replaceState({}, document.title, url.toString());
             }
+        }
+
+        const walkinDob = document.getElementById('walkinBirthDate');
+        if (walkinDob) {
+            const todayStr = new Date().toISOString().split('T')[0];
+            walkinDob.setAttribute('max', todayStr);
+            walkinDob.setAttribute('min', '1900-01-01');
+            walkinDob.addEventListener('change', function() {
+                if (this.value > todayStr) {
+                    alert('Invalid birth date: Future dates are not allowed.');
+                    this.value = '';
+                } else if (this.value && this.value < '1900-01-01') {
+                    alert('Invalid birth date: Year must not be earlier than 1900.');
+                    this.value = '';
+                }
+            });
         }
     });
 </script>

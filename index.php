@@ -156,8 +156,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['client_signup'])) {
         $password        = $_POST['password'] ?? '';
         $confirmPassword = $_POST['confirm_password'] ?? '';
 
+        $todayStr = date('Y-m-d');
         if (empty($mobile) || empty($email) || empty($firstName) || empty($lastName) || empty($birthDate) || empty($sitio) || empty($username) || empty($password) || empty($confirmPassword)) {
             $error = "Please enter your First Name, Last Name, and all required registration details.";
+        } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $birthDate) || $birthDate > $todayStr || $birthDate < '1900-01-01') {
+            $error = "Invalid birth date: Please select a valid date between January 1, 1900 and today.";
         } elseif (!is_valid_person_name($firstName, 2)) {
             $error = "Invalid First Name: Numbers, spaces only, or ghost names are prohibited. Must contain at least 2 letters.";
         } elseif (!empty($middleName) && !is_valid_person_name($middleName, 2)) {
@@ -836,7 +839,7 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
                                 </div>
                                 <div class="col-6">
                                     <label class="form-label fw-bold small text-dark mb-1">Birth Date</label>
-                                    <input type="date" name="birth_date" id="regBirthDate" class="form-control form-control-sm" required value="<?= ($errorScope === 'signup') ? sanitize($_POST['birth_date'] ?? '') : '' ?>">
+                                    <input type="date" name="birth_date" id="regBirthDate" class="form-control form-control-sm" min="1900-01-01" max="<?= date('Y-m-d') ?>" required value="<?= ($errorScope === 'signup') ? sanitize($_POST['birth_date'] ?? '') : '' ?>">
                                 </div>
                                 <div class="col-6">
                                     <label class="form-label fw-bold small text-dark mb-1">Gender</label>
@@ -1162,6 +1165,17 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
             e.preventDefault();
             return false;
         }
+        const todayStr = new Date().toISOString().split('T')[0];
+        if (birthDate > todayStr) {
+            showModalFloatingError('Invalid birth date: Future dates are not allowed.', 'regBirthDate');
+            e.preventDefault();
+            return false;
+        }
+        if (birthDate < '1900-01-01') {
+            showModalFloatingError('Invalid birth date: Year must not be earlier than 1900.', 'regBirthDate');
+            e.preventDefault();
+            return false;
+        }
 
         const sitio = document.getElementById('regSitio').value;
         const validAreas = ['Asia 1', 'Asia 2', 'Carmel Housing', 'Ceris 1 & 2', 'GK', 'Manfil', 'Mcdc', 'Paikit', 'Palao'];
@@ -1229,6 +1243,22 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
         const regMobile = document.getElementById('regMobile');
         if (regMobile && regMobile.value) {
             handleMobileInput(regMobile);
+        }
+
+        const regBirthDate = document.getElementById('regBirthDate');
+        if (regBirthDate) {
+            const todayStr = new Date().toISOString().split('T')[0];
+            regBirthDate.setAttribute('max', todayStr);
+            regBirthDate.setAttribute('min', '1900-01-01');
+            regBirthDate.addEventListener('change', function() {
+                if (this.value > todayStr) {
+                    showModalFloatingError('Invalid birth date: Future dates are not allowed.', 'regBirthDate');
+                    this.value = '';
+                } else if (this.value && this.value < '1900-01-01') {
+                    showModalFloatingError('Invalid birth date: Year must not be earlier than 1900.', 'regBirthDate');
+                    this.value = '';
+                }
+            });
         }
 
         const welcomeModalEl = document.getElementById('welcomeMsgModal');

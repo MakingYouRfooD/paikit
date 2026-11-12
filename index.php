@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_submit'])) {
                     );
 
                     // 2. Insert In-App Alert Notification for Account Owner
-                    $alertMsg = "May nagtangkang mag-log in sa iyong account gamit ang ibang device ({$attemptDevice}) mula sa IP {$attemptIp}. Hinarang ito ng system para sa iyong proteksyon.";
+                    $alertMsg = "An attempt was made to sign in to your account from another device ({$attemptDevice}) from IP {$attemptIp}. It was blocked by the system for your protection.";
                     record_security_alert($pdo, (int)$user['user_id'], 'CONCURRENT_LOGIN_BLOCKED', $alertMsg, $attemptIp, $attemptDevice);
 
                     // 3. Dispatch Security Alert Email to Account Owner
@@ -83,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_submit'])) {
 
                     // 4. Present clear blocked notification to attempting user
                     $errorScope = 'login';
-                    $error = "Pansamantalang hinarang: Naka-log in na ang account na ito sa ibang device (" . sanitize($activeDevice) . "). Bawal mag-log in nang sabay sa dalawang magkaibang device para sa seguridad ng iyong datos. May ipinadalang alert notification sa iyong rehistradong email.";
+                    $error = "Temporarily blocked: This account is currently logged in on another device (" . sanitize($activeDevice) . "). Concurrent logins on two different devices are prohibited for your data security. A security alert notification has been sent to your registered email.";
                 } else {
                     // Regenerate session ID to prevent session fixation attacks
                     session_regenerate_id(true);

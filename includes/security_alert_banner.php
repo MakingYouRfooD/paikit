@@ -32,19 +32,19 @@ $unreadAlerts = get_unread_security_alerts($pdo, $currentUserId);
                     <div class="flex-grow-1">
                         <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
                             <span class="badge bg-danger text-uppercase fw-bold px-2 py-1">Security Alert</span>
-                            <span class="text-danger fw-bold fs-6">Hinarang na Pag-login sa Ibang Device</span>
+                            <span class="text-danger fw-bold fs-6">Blocked Login from Another Device</span>
                             <span class="text-muted small ms-auto"><i class="bi bi-clock me-1"></i><?= date('M d, Y h:i A', strtotime($secAlert['created_at'])) ?></span>
                         </div>
                         <p class="mb-2 text-dark small" style="line-height: 1.5;">
-                            May nagtangkang mag-log in sa iyong account gamit ang ibang device (<strong><?= sanitize($secAlert['attempt_device'] ?: 'Unknown Device') ?></strong>, IP Address: <code><?= sanitize($secAlert['attempt_ip'] ?: '127.0.0.1') ?></code>). 
-                            <strong>HINARANG ng system ang pag-login</strong> upang protektahan ang iyong data dahil kasalukuyan kang naka-log in sa device na ito.
+                            An attempt was made to sign in to your account from another device (<strong><?= sanitize($secAlert['attempt_device'] ?: 'Unknown Device') ?></strong>, IP Address: <code><?= sanitize($secAlert['attempt_ip'] ?: '127.0.0.1') ?></code>). 
+                            <strong>The system BLOCKED this login attempt</strong> to protect your data because you are currently active on this device.
                         </p>
                         <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
                             <button type="button" class="btn btn-sm btn-danger fw-bold rounded-pill px-3 shadow-sm" onclick="openSettingsModal('security'); dismissSecurityAlert(<?= (int)$secAlert['alert_id'] ?>);">
-                                <i class="bi bi-key-fill me-1"></i> Magpalit Kaagad ng Password
+                                <i class="bi bi-key-fill me-1"></i> Change Password Immediately
                             </button>
                             <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="dismissSecurityAlert(<?= (int)$secAlert['alert_id'] ?>);">
-                                <i class="bi bi-check2 me-1"></i> Naintindihan ko / Dismiss
+                                <i class="bi bi-check2 me-1"></i> I Understand / Dismiss
                             </button>
                         </div>
                     </div>
@@ -61,7 +61,7 @@ $unreadAlerts = get_unread_security_alerts($pdo, $currentUserId);
         <div class="modal-content border-danger shadow-lg">
             <div class="modal-header bg-danger text-white py-3">
                 <h5 class="modal-title fw-bold" id="liveSecurityAlertModalLabel">
-                    <i class="bi bi-shield-slash-fill me-2"></i> Babala sa Seguridad: Hinarang na Pag-login
+                    <i class="bi bi-shield-slash-fill me-2"></i> Security Alert: Blocked Login Attempt
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -71,25 +71,25 @@ $unreadAlerts = get_unread_security_alerts($pdo, $currentUserId);
                         <i class="bi bi-exclamation-triangle-fill fs-2"></i>
                     </span>
                 </div>
-                <h6 class="fw-bold text-danger mb-2">May nagtangkang mag-log in sa iyong account!</h6>
+                <h6 class="fw-bold text-danger mb-2">Someone attempted to log in to your account!</h6>
                 <p class="text-secondary small mb-3" id="liveSecAlertDetails">
-                    May ibang device na sumubok pumasok sa iyong account. Hinarang ito ng system dahil kasalukuyan kang naka-log in dito sa device na ito.
+                    Another device attempted to access your account. It was blocked by the system because you are currently active on this device.
                 </p>
                 <div class="alert alert-light border small text-start p-3 mb-3 bg-light">
                     <div class="mb-1"><strong>Device:</strong> <span id="liveSecAlertDevice">-</span></div>
                     <div class="mb-1"><strong>IP Address:</strong> <code id="liveSecAlertIp">-</code></div>
-                    <div><strong>Oras:</strong> <span id="liveSecAlertTime">-</span></div>
+                    <div><strong>Time:</strong> <span id="liveSecAlertTime">-</span></div>
                 </div>
                 <div class="alert alert-warning border-0 small text-start p-2 mb-3">
                     <i class="bi bi-info-circle-fill text-warning me-1"></i>
-                    <strong>Payo:</strong> Kung hindi ikaw ito, maaaring may nakakaalam ng iyong password. Magpalit agad ng password upang manatiling ligtas ang iyong account.
+                    <strong>Recommendation:</strong> If this was not you, someone may know your password. Change your password immediately to protect your account.
                 </div>
                 <div class="d-grid gap-2">
                     <button type="button" class="btn btn-danger fw-bold py-2 rounded-pill shadow-sm" id="btnLiveChangePwd">
-                        <i class="bi bi-shield-lock-fill me-1"></i> Magpalit Kaagad ng Password
+                        <i class="bi bi-shield-lock-fill me-1"></i> Change Password Immediately
                     </button>
                     <button type="button" class="btn btn-outline-secondary py-2 rounded-pill" data-bs-dismiss="modal" id="btnLiveDismiss">
-                        Naintindihan ko (Dismiss)
+                        I Understand (Dismiss)
                     </button>
                 </div>
             </div>

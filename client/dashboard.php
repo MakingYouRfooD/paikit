@@ -874,10 +874,10 @@ if ($activeTicket) {
                     </span>
                 </div>
                 <h2 class="fw-bold text-white mb-2" style="font-size: clamp(1.6rem, 2.8vw, 2.3rem); letter-spacing: -0.5px;">
-                    Magandang Araw, <?= sanitize($clientPatient['full_name']) ?>! 🩺
+                    Welcome, <?= sanitize($clientPatient['full_name']) ?>! 🩺
                 </h2>
                 <p class="text-white-50 mb-3" style="font-size: 0.95rem; max-width: 640px; line-height: 1.5;">
-                    Paikit Health Center Digital Care Hub &bull; Tingnan ang real-time consultation queue, mag-book ng outpatient appointment, at i-access ang iyong official diagnostic records.
+                    Paikit Health Center Digital Care Hub &bull; View real-time consultation queue, book outpatient appointments, and access your official diagnostic records.
                 </p>
 
                 <!-- Micro Health Stats Row in Hero -->
@@ -933,7 +933,7 @@ if ($activeTicket) {
         </button>
 
         <!-- PENDING APPOINTMENTS (ACCESSIBLE ONLY HERE WITH GENEROUS BREATHING ROOM) -->
-        <button type="button" class="patient-pill-btn btn-pending-nav" id="tab-pending-btn" data-bs-toggle="modal" data-bs-target="#pendingApptModal" title="Tingnan ang iyong pending o nakatakdang appointment sa hinaharap">
+        <button type="button" class="patient-pill-btn btn-pending-nav" id="tab-pending-btn" data-bs-toggle="modal" data-bs-target="#pendingApptModal" title="View your pending or upcoming scheduled appointments">
             <i class="bi bi-clock-history text-warning fs-5"></i>
             <span>Pending Appointments</span>
             <?php if ($pendingCount > 0): ?>
@@ -1075,10 +1075,10 @@ if ($activeTicket) {
                                             </div>
                                         </div>
                                         <p class="text-secondary small mb-3">
-                                            Ang iyong appointment request para sa <strong><?= date('l, F j, Y', strtotime($activeTicket['visit_date'])) ?></strong> ay sinusuri na ng Staff Desk para sa daily patient quota at schedule ng doktor.
+                                            Your appointment request for <strong><?= date('l, F j, Y', strtotime($activeTicket['visit_date'])) ?></strong> is being reviewed by the Staff Desk for daily patient quota and doctor availability.
                                         </p>
                                         <div class="p-3 bg-white rounded-3 border small text-muted mb-3">
-                                            <i class="bi bi-bell-fill text-warning me-1"></i> Makatatanggap ka ng update sa portal at email kapag naaprubahan na ang iyong ticket pass.
+                                            <i class="bi bi-bell-fill text-warning me-1"></i> You will receive an update in the portal and via email once your ticket pass is approved.
                                         </div>
                                         <div>
                                             <form action="dashboard" method="POST" onsubmit="return confirm('Are you sure you want to cancel this appointment request?');">
@@ -1103,10 +1103,10 @@ if ($activeTicket) {
                                             </div>
                                         </div>
                                         <p class="text-secondary small mb-3">
-                                            Nakatakda ang iyong konsultasyon sa darating na <strong><?= date('l, F j, Y', strtotime($activeTicket['visit_date'])) ?></strong>.
+                                            Your consultation is scheduled for <strong><?= date('l, F j, Y', strtotime($activeTicket['visit_date'])) ?></strong>.
                                         </p>
                                         <div class="p-3 bg-white rounded-3 border small text-muted">
-                                            <i class="bi bi-geo-alt-fill text-danger me-1"></i> Sa mismong araw ng appointment, dalhin ang iyong mobile device at ipakita ang QR Pass sa Staff Desk pagdating sa health center.
+                                            <i class="bi bi-geo-alt-fill text-danger me-1"></i> On the day of your appointment, bring your mobile device and present this QR Pass to the Staff Desk upon arrival at the health center.
                                         </div>
                                     </div>
                                 <?php elseif (($activeTicket['check_in_status'] ?? '') === 'Booked'): ?>
@@ -1121,10 +1121,10 @@ if ($activeTicket) {
                                             </div>
                                         </div>
                                         <p class="text-secondary small mb-3">
-                                            Nandito na ang iyong schedule ngayong araw! Mangyaring magtungo sa Health Center Staff Desk upang i-scan ang iyong QR Pass.
+                                            Your consultation is scheduled for today! Please proceed to the Health Center Staff Desk to scan your QR Pass.
                                         </p>
                                         <div class="p-3 bg-white rounded-3 border small text-muted">
-                                            <i class="bi bi-broadcast text-danger me-1"></i> Pagkatapos ma-scan, awtomatiko kang mapapasama sa active queue list ng doktor.
+                                            <i class="bi bi-broadcast text-danger me-1"></i> Once scanned, you will automatically be placed into the doctor's active consultation queue.
                                         </div>
                                     </div>
                                 <?php else: ?>
@@ -1165,11 +1165,11 @@ if ($activeTicket) {
 
                                         <div class="p-3 rounded-3 border border-white border-opacity-20 text-center mt-3 text-white fw-semibold small" id="liveTrackerDetail" style="background: rgba(255, 255, 255, 0.08); backdrop-filter: blur(8px);">
                                             <?php if ($activeTicket['queue_status'] === 'Serving'): ?>
-                                                <span class="text-warning fs-6"><i class="bi bi-door-open-fill me-1"></i> YOU ARE BEING CALLED! Mangyaring pumasok na sa consultation room ng doktor.</span>
+                                                <span class="text-warning fs-6"><i class="bi bi-door-open-fill me-1"></i> YOU ARE BEING CALLED! Please proceed to the Doctor's consultation room.</span>
                                             <?php elseif ($liveQueueInfo && $liveQueueInfo['position'] === 1): ?>
-                                                <span class="text-warning fs-6"><i class="bi bi-bell-fill me-1"></i> IKAW NA ANG SUSUNOD! Mangyaring mag-standby sa tapat ng silid ng doktor.</span>
+                                                <span class="text-warning fs-6"><i class="bi bi-bell-fill me-1"></i> YOU ARE NEXT IN LINE! Please standby outside the Consultation Room.</span>
                                             <?php elseif ($liveQueueInfo && $liveQueueInfo['position'] !== null): ?>
-                                                <span><i class="bi bi-people-fill text-warning me-1"></i> Mayroong <strong><?= (int)$liveQueueInfo['ahead_count'] ?></strong> pasyente sa unahan mo. Maaari kang maghintay nang komportable.</span>
+                                                <span><i class="bi bi-people-fill text-warning me-1"></i> There are <strong><?= (int)$liveQueueInfo['ahead_count'] ?></strong> patient(s) ahead of you. You may wait comfortably.</span>
                                             <?php endif; ?>
                                         </div>
                                     </div>
@@ -1182,7 +1182,7 @@ if ($activeTicket) {
                                         <strong class="text-dark small">Barangay Canlubang Clinic Policy:</strong>
                                     </div>
                                     <div class="text-muted small" style="font-size: 0.8rem;">
-                                        Bukas ang health center mula Lunes hanggang Biyernes (8:00 AM - 5:00 PM). Priyoridad ang mga Senior Citizens, Buntis, PWD, at Emergency cases.
+                                        The health center is open Monday to Friday (8:00 AM - 5:00 PM). Priority is given to Senior Citizens, Pregnant Women, PWDs, and Emergency cases.
                                     </div>
                                 </div>
                             </div>
@@ -1196,17 +1196,17 @@ if ($activeTicket) {
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
                             <div>
                                 <span class="badge bg-success text-white px-3 py-1 rounded-pill small mb-2 fw-semibold">
-                                    <i class="bi bi-calendar2-check-fill me-1"></i> May Nakatakdang Konsultasyon
+                                    <i class="bi bi-calendar2-check-fill me-1"></i> Scheduled Consultation
                                 </span>
                                 <h5 class="fw-bold text-dark mb-1">
                                     Ticket #<?= sanitize($pendingAppointments[0]['queue_number']) ?> &bull; <?= date('l, F j, Y', strtotime($pendingAppointments[0]['visit_date'])) ?>
                                 </h5>
                                 <p class="small text-secondary mb-0">
-                                    Hindi mo pa araw ng iskedyul ngayon (<?= date('l, F j, Y') ?>). Nakatakda ang iyong susunod na appointment sa <strong><?= date('l, F j, Y', strtotime($pendingAppointments[0]['visit_date'])) ?></strong>.
+                                    Your scheduled appointment date is not today (<?= date('l, F j, Y') ?>). Your next appointment is scheduled for <strong><?= date('l, F j, Y', strtotime($pendingAppointments[0]['visit_date'])) ?></strong>.
                                 </p>
                             </div>
                             <button type="button" class="btn btn-success fw-bold px-4 py-2 rounded-pill shadow-sm" data-bs-toggle="modal" data-bs-target="#pendingApptModal">
-                                <i class="bi bi-clock-history me-1"></i> Tingnan ang Appointment (<?= $pendingCount ?>)
+                                <i class="bi bi-clock-history me-1"></i> View Appointments (<?= $pendingCount ?>)
                             </button>
                         </div>
                     </div>
@@ -1218,7 +1218,7 @@ if ($activeTicket) {
                     </div>
                     <h3 class="fw-bold text-dark mb-2">No Active Queue Ticket Today</h3>
                     <p class="text-secondary small max-w-md mx-auto mb-4" style="max-width: 520px; font-size: 0.92rem;">
-                        Wala kang aktibong appointment o queue pass ngayong araw (<?= date('F j, Y') ?>). Magiging aktibo lamang ang iyong queue pass sa mismong araw ng iyong nakatakdang iskedyul.
+                        You have no active appointment or queue pass today (<?= date('F j, Y') ?>). Your queue pass will only become active on the day of your scheduled visit.
                     </p>
                     <div class="d-flex flex-wrap justify-content-center gap-2">
                         <?php if (!empty($pendingAppointments)): ?>
@@ -1254,7 +1254,7 @@ if ($activeTicket) {
                         <h5 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
                             <i class="bi bi-calendar3 text-primary"></i> Consultation Appointment Calendar
                         </h5>
-                        <small class="text-muted">Pindutin ang anumang kulay berdeng petsa upang i-reserve ang iyong appointment.</small>
+                        <small class="text-muted">Click on any green date to reserve your appointment.</small>
                     </div>
                     <div class="d-flex align-items-center gap-2">
                         <div class="btn-group btn-group-sm shadow-sm">
@@ -1409,7 +1409,7 @@ if ($activeTicket) {
                         <h4 class="fw-bold text-dark mb-0">
                             <i class="bi bi-journal-medical text-primary me-2"></i> Clinical Encounters & Official E-Prescriptions
                         </h4>
-                        <small class="text-muted">Kompletong talaan ng iyong vital signs, assessment ng doktor, at opisyal na reseta.</small>
+                        <small class="text-muted">Complete record of your vital signs, doctor's assessment, and official prescriptions.</small>
                     </div>
                     <button class="btn btn-primary btn-sm fw-bold shadow-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#bookModal">
                         <i class="bi bi-calendar-plus me-1"></i> New Consultation
@@ -1686,7 +1686,7 @@ if ($activeTicket) {
                     </div>
                     <div>
                         <h5 class="modal-title fw-bold text-dark mb-0" id="pendingApptModalLabel">My Pending & Upcoming Appointments</h5>
-                        <small class="text-muted">Mga nakatakda o pending na konsultasyon sa klinika</small>
+                        <small class="text-muted">Scheduled or pending consultations at the clinic</small>
                     </div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -1695,16 +1695,16 @@ if ($activeTicket) {
                 <?php if (empty($pendingAppointments)): ?>
                     <div class="text-center py-5 text-muted">
                         <i class="bi bi-calendar-x fs-1 d-block mb-2 text-secondary opacity-50"></i>
-                        <h6 class="fw-bold">Walang Pending o Darating na Appointment</h6>
-                        <p class="small mb-3">Wala kang kasalukuyang nakabinbin o nakatakdang appointment sa mga susunod na araw.</p>
+                        <h6 class="fw-bold">No Pending or Upcoming Appointments</h6>
+                        <p class="small mb-3">You currently have no pending or scheduled appointments in the upcoming days.</p>
                         <button type="button" class="btn btn-primary btn-sm rounded-pill px-4 fw-bold shadow-sm" data-bs-dismiss="modal" onclick="switchPatientTab('tab-calendar-btn')">
-                            <i class="bi bi-calendar-plus me-1"></i> Mag-book ng Appointment
+                            <i class="bi bi-calendar-plus me-1"></i> Book an Appointment
                         </button>
                     </div>
                 <?php else: ?>
                     <div class="alert alert-info border-0 rounded-3 small mb-3">
                         <i class="bi bi-info-circle-fill me-1 text-primary"></i>
-                        <strong>Paunawa:</strong> Magiging aktibo ang iyong <strong>Live Queue Boarding Pass</strong> sa mismong araw ng iyong nakatakdang iskedyul. Dalhin ang iyong QR Code o Slip Code sa araw ng iyong konsultasyon.
+                        <strong>Notice:</strong> Your <strong>Live Queue Boarding Pass</strong> will become active on the day of your scheduled visit. Please bring your QR Code or Slip Code on your consultation day.
                     </div>
 
                     <div class="d-flex flex-column gap-3">
@@ -1713,7 +1713,7 @@ if ($activeTicket) {
                                 $isPendingReview = ($pa['approval_status'] === 'Pending');
                                 $visitTs = strtotime($pa['visit_date']);
                                 $dayDiff = (int)ceil(($visitTs - time()) / 86400);
-                                $diffLabel = ($dayDiff > 0) ? "Sa darating na {$dayDiff} araw" : "Nakatakda";
+                                $diffLabel = ($dayDiff > 0) ? "In {$dayDiff} day" . ($dayDiff > 1 ? "s" : "") : "Scheduled";
                             ?>
                             <div class="card border rounded-4 shadow-sm overflow-hidden bg-white">
                                 <div class="p-3 bg-light border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -1738,7 +1738,7 @@ if ($activeTicket) {
                                     <div class="row align-items-center g-3">
                                         <div class="col-md-7">
                                             <div class="mb-2">
-                                                <div class="text-muted small text-uppercase fw-semibold" style="font-size: 0.72rem;">Nakatakdang Petsa:</div>
+                                                <div class="text-muted small text-uppercase fw-semibold" style="font-size: 0.72rem;">Scheduled Date:</div>
                                                 <div class="fs-5 fw-bold text-dark">
                                                     <i class="bi bi-calendar2-event text-primary me-1"></i> <?= date('l, F j, Y', $visitTs) ?>
                                                 </div>

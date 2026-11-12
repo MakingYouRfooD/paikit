@@ -265,20 +265,20 @@ require_once __DIR__ . '/security_alert_banner.php';
                                         <i class="bi bi-display fs-5"></i>
                                     </div>
                                     <div>
-                                        <div class="fw-bold text-dark">Kasalukuyang Aktibong Device</div>
+                                        <div class="fw-bold text-dark">Currently Active Device</div>
                                         <div class="text-secondary small">
-                                            <strong><?= sanitize(get_device_description()) ?></strong> (Iyong Device) &bull; IP: <code><?= sanitize(get_client_ip()) ?></code>
+                                            <strong><?= sanitize(get_device_description()) ?></strong> (Your Device) &bull; IP: <code><?= sanitize(get_client_ip()) ?></code>
                                         </div>
                                     </div>
                                 </div>
                                 <div>
                                     <span class="badge bg-success-subtle text-success border border-success px-3 py-2 rounded-pill small">
-                                        <i class="bi bi-shield-lock-fill me-1"></i> Protektado: Single Device Active
+                                        <i class="bi bi-shield-lock-fill me-1"></i> Protected: Single Device Active
                                     </span>
                                 </div>
                             </div>
                             <div class="small text-muted mt-2 pt-2 border-top">
-                                <i class="bi bi-info-circle me-1"></i> Bawal mag-log in sa higit sa isang device nang sabay. Kung may ibang sumubok mag-log in gamit ang iyong account, awtomatiko itong haharangin at makakatanggap ka ng security alert email at abiso sa screen.
+                                <i class="bi bi-info-circle me-1"></i> Concurrent logins across multiple devices are prohibited. If another device attempts to sign in to your account, it will automatically be blocked, and you will receive a security alert email and on-screen notification.
                             </div>
                         </div>
 

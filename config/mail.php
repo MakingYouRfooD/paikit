@@ -455,7 +455,7 @@ function send_security_alert_email(string $recipientEmail, string $recipientName
     $baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
     $resetPortalLink = "{$protocol}://{$host}{$baseDir}/forgot_password?email=" . urlencode($recipientEmail);
 
-    $subject = "🚨 Babala sa Seguridad: Hinarang na Pag-login sa Ibang Device - Paikit Health Center";
+    $subject = "🚨 Security Alert: Blocked Login Attempt from Another Device - Paikit Health Center";
 
     $htmlBody = '
     <!DOCTYPE html>
@@ -463,7 +463,7 @@ function send_security_alert_email(string $recipientEmail, string $recipientName
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Babala sa Seguridad - Paikit Health Center</title>
+        <title>Security Alert - Paikit Health Center</title>
         <style>
             body { font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
             .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #fee2e2; overflow: hidden; box-shadow: 0 4px 16px rgba(220, 38, 38, 0.08); }
@@ -489,58 +489,58 @@ function send_security_alert_email(string $recipientEmail, string $recipientName
             </div>
             <div class="content">
                 <div class="alert-banner">
-                    ⚠️ BABALA SA SEGURIDAD: Hinarang ang Pag-login sa Ibang Device
+                    ⚠️ SECURITY ALERT: Login Blocked on Another Device
                 </div>
 
-                <p>Magandang araw, <strong>' . htmlspecialchars($recipientName, ENT_QUOTES, 'UTF-8') . '</strong>,</p>
-                <p>Nais naming ipabatid sa iyo na may <strong>nagtangkang mag-log in</strong> sa iyong Paikit Health Center account gamit ang iyong mga credentials mula sa ibang device habang ikaw ay kasalukuyang naka-log in.</p>
+                <p>Hello <strong>' . htmlspecialchars($recipientName, ENT_QUOTES, 'UTF-8') . '</strong>,</p>
+                <p>We are notifying you that an <strong>attempt was made to sign in</strong> to your Paikit Health Center account using your credentials from another device while you are currently logged in.</p>
 
-                <p>Alinsunod sa <strong>Data Privacy Act of 2012 (RA 10173)</strong> at para sa kaligtasan ng iyong rekord medikal, <strong>HINARANG (BLOCKED)</strong> ng aming sistema ang pag-log in na ito dahil ipinagbabawal ang sabay na pag-access sa magkaibang device.</p>
+                <p>In accordance with the <strong>Data Privacy Act of 2012 (RA 10173)</strong> and to protect your medical records, our system <strong>BLOCKED</strong> this login attempt because simultaneous access across multiple devices is strictly prohibited.</p>
 
                 <div class="details-card">
                     <div style="font-weight: 700; color: #0f172a; margin-bottom: 10px; font-size: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
-                        Detalye ng Hinarang na Pagtatangka:
+                        Blocked Attempt Details:
                     </div>
                     <table class="details-table">
                         <tr>
-                            <td class="lbl">Petsa at Oras:</td>
+                            <td class="lbl">Date & Time:</td>
                             <td class="val">' . htmlspecialchars($attemptTime, ENT_QUOTES, 'UTF-8') . '</td>
                         </tr>
                         <tr>
-                            <td class="lbl">Device na Nagtangka:</td>
+                            <td class="lbl">Attempted Device:</td>
                             <td class="val">' . htmlspecialchars($attemptDevice, ENT_QUOTES, 'UTF-8') . '</td>
                         </tr>
                         <tr>
-                            <td class="lbl">IP Address ng Nagtangka:</td>
+                            <td class="lbl">Attempted IP Address:</td>
                             <td class="val"><code>' . htmlspecialchars($attemptIp, ENT_QUOTES, 'UTF-8') . '</code></td>
                         </tr>
                         <tr>
-                            <td class="lbl">Kasalukuyang Device Mo:</td>
+                            <td class="lbl">Your Active Device:</td>
                             <td class="val">' . htmlspecialchars($activeDevice, ENT_QUOTES, 'UTF-8') . '</td>
                         </tr>
                         <tr>
-                            <td class="lbl">Aksyon ng System:</td>
-                            <td class="val"><span class="badge-blocked">&#10006; HINARANG / BLOCKED</span></td>
+                            <td class="lbl">System Action:</td>
+                            <td class="val"><span class="badge-blocked">&#10006; BLOCKED</span></td>
                         </tr>
                     </table>
                 </div>
 
                 <div class="notice-box">
-                    <strong>Gabay sa Paggamit at Seguridad:</strong>
+                    <strong>Security Instructions & Guidance:</strong>
                     <ul style="margin: 8px 0 0 0; padding-left: 20px;">
-                        <li><strong>Kung ikaw ito:</strong> Kung nais mong lumipat sa bagong cellphone o kompyuter, mangyaring mag-log out muna sa iyong lumang device bago mag-log in sa bago.</li>
-                        <li><strong>Kung HINDI ikaw ito:</strong> May ibang taong may hawak ng iyong password! Mangyaring magpalit kaagad ng iyong password upang manatiling ligtas ang iyong account.</li>
+                        <li><strong>If this was you:</strong> To switch to a different phone or computer, please log out of your previous device first before signing in on the new device.</li>
+                        <li><strong>If this was NOT you:</strong> Someone else may have your password! Please change your password immediately to protect your account.</li>
                     </ul>
                 </div>
 
                 <div style="text-align: center; margin: 24px 0;">
                     <a href="' . htmlspecialchars($resetPortalLink, ENT_QUOTES, 'UTF-8') . '" class="btn-action" target="_blank">
-                        Magpalit ng Password Kaagad
+                        Change Password Immediately
                     </a>
                 </div>
 
                 <p style="font-size: 12px; color: #94a3b8; margin-top: 20px;">
-                    Paalala: Hinding-hindi hihingin ng mga kawani ng Paikit Health Center ang iyong password. Panatilihing kumpidensyal ang iyong login credentials.
+                    Notice: Paikit Health Center personnel will never ask for your password. Keep your login credentials confidential.
                 </p>
             </div>
             <div class="footer">
@@ -551,11 +551,11 @@ function send_security_alert_email(string $recipientEmail, string $recipientName
     </body>
     </html>';
 
-    $altBody = "PAIKIT HEALTH CENTER - BABALA SA SEGURIDAD\n\n"
-             . "Kumusta {$recipientName},\n\n"
-             . "May nagtangkang mag-log in sa iyong account mula sa ibang device ({$attemptDevice}, IP: {$attemptIp}) noong {$attemptTime}.\n\n"
-             . "HINARANG ng aming sistema ang pag-log in na ito dahil kasalukuyan kang naka-log in sa device na: {$activeDevice}.\n\n"
-             . "Kung hindi ikaw ang gumawa nito, mangyaring magpalit agad ng password gamit ang link na ito:\n"
+    $altBody = "PAIKIT HEALTH CENTER - SECURITY ALERT\n\n"
+             . "Hello {$recipientName},\n\n"
+             . "An attempt was made to sign in to your account from another device ({$attemptDevice}, IP: {$attemptIp}) on {$attemptTime}.\n\n"
+             . "Our system BLOCKED this login attempt because you are currently logged in on: {$activeDevice}.\n\n"
+             . "If you did not perform this login, please reset your password immediately using the link below:\n"
              . "{$resetPortalLink}\n\n"
              . "Paikit Health Center, Sitio Paikit, Canlubang, Calamba City, Laguna.";
 

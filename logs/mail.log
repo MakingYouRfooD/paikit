@@ -11,3 +11,4 @@
 [2026-11-10 17:10:47] (FALLBACK - SMTP FAILED: SMTP Error: Could not connect to SMTP host. Failed to connect to server SMTP server error: Failed to connect to server Additional SMTP info: php_network_getaddresses: getaddrinfo for smtp.gmail.com failed: No such host is known. ) TO: khenryansembrano@gmail.com (KHEN RYAN PUSOD Sembrano) | SUBJECT: Appointment Confirmed - Ticket #A-004 (Paikit Health Center)
 [2026-11-12 17:30:19] (LOCAL FALLBACK - RESEND CODE 422) TO: test_verify@example.com (Test User) | SUBJECT: Verify Your Email Address - Paikit Health Center
 [2026-11-12 10:43:16] (LOCAL FALLBACK - RESEND CODE 422) TO: test@example.com (Juan Dela Cruz) | SUBJECT: 🚨 Babala sa Seguridad: Hinarang na Pag-login sa Ibang Device - Paikit Health Center
+[2026-11-12 10:53:50] (LOCAL FALLBACK - RESEND CODE 403) TO: another.test.recipient.123@gmail.com (Test Recipient) | SUBJECT: Test Subject from Script

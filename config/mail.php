@@ -134,14 +134,43 @@ function create_mailer(): PHPMailer {
  */
 function send_system_email(string $toEmail, string $toName, string $subject, string $htmlBody, string $altBody = ''): array {
     $config = get_mail_config();
+    $lastError = null;
 
-    // 0. Support for Resend HTTPS API (Port 443 - Bypasses Cloud SMTP Port Restrictions)
-    $defaultResendKey = base64_decode('cmVfNzlOWHY4NGJfNTdiNVR2MUtGUFFxR1NVTkRoVnJ3MTJa');
-    $resendKey = getenv('RESEND_API_KEY') ?: ($config['resend_api_key'] ?? $defaultResendKey);
+    // 1. Primary: If SMTP credentials exist, send live email via PHPMailer (Gmail SMTP / Custom SMTP)
+    // This allows delivering directly to ANY recipient email (Gmail, Yahoo, Outlook, etc.) without domain sandbox restrictions.
+    if (!empty($config['username']) && !empty($config['password'])) {
+        try {
+            $mail = create_mailer();
+            $mail->addAddress($toEmail, $toName);
+            $mail->isHTML(true);
+            $mail->Subject = $subject;
+            $mail->Body    = $htmlBody;
+            $mail->AltBody = $altBody ?: strip_tags($htmlBody);
+
+            $mail->send();
+            return [
+                'success'   => true, 
+                'sent'      => true, 
+                'simulated' => false, 
+                'error'     => null
+            ];
+        } catch (Exception $e) {
+            $lastError = !empty($mail->ErrorInfo) ? $mail->ErrorInfo : $e->getMessage();
+            error_log("PHPMailer Live Send Error: " . $lastError);
+        } catch (\Throwable $t) {
+            $lastError = $t->getMessage();
+            error_log("PHPMailer Unexpected Error: " . $lastError);
+        }
+    }
+
+    // 2. Secondary Fallback: Resend HTTPS API (Port 443 - for environments where SMTP ports are blocked)
+    $resendKey = getenv('RESEND_API_KEY') ?: ($config['resend_api_key'] ?? '');
     if (!empty($resendKey)) {
         try {
             $ch = curl_init('https://api.resend.com/emails');
-            $sender = 'Paikit Health Center <onboarding@resend.dev>';
+            $sender = !empty($config['from_address']) && !str_ends_with($config['from_address'], '@gmail.com') 
+                ? "Paikit Health Center <{$config['from_address']}>" 
+                : 'Paikit Health Center <onboarding@resend.dev>';
             $payload = json_encode([
                 'from'    => $sender,
                 'to'      => [$toEmail],
@@ -166,32 +195,17 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
             if ($code >= 200 && $code < 300) {
                 return ['success' => true, 'sent' => true, 'simulated' => false, 'error' => null];
             } else {
-                $errorDetail = !empty($curlErr) ? $curlErr : $res;
-                error_log("Resend API Delivery Failed ($code): " . $errorDetail);
-                $isLocal = (!isset($_SERVER['REMOTE_ADDR']) || in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1', 'localhost']) || str_contains($_SERVER['HTTP_HOST'] ?? '', 'localhost') || php_sapi_name() === 'cli');
-                if ($isLocal) {
-                    try {
-                        $logDir = __DIR__ . '/../logs';
-                        if (!is_dir($logDir)) {
-                            @mkdir($logDir, 0777, true);
-                        }
-                        $logLine = "[" . date('Y-m-d H:i:s') . "] (LOCAL FALLBACK - RESEND CODE {$code}) TO: {$toEmail} ({$toName}) | SUBJECT: {$subject}\n";
-                        @file_put_contents($logDir . '/mail.log', $logLine, FILE_APPEND);
-                        @file_put_contents($logDir . '/latest_verification_email.html', $htmlBody);
-                    } catch (\Throwable $t) {}
-
-                    return ['success' => true, 'sent' => false, 'simulated' => true, 'error' => null, 'notice' => "Local fallback mode enabled ($code)."];
-                }
-                return ['success' => false, 'sent' => false, 'simulated' => false, 'error' => "Resend Error ($code): " . $errorDetail];
+                $lastError = "Resend API Failed ($code): " . (!empty($curlErr) ? $curlErr : $res);
+                error_log($lastError);
             }
         } catch (\Throwable $e) {
-            error_log("Resend Exception: " . $e->getMessage());
-            return ['success' => false, 'sent' => false, 'simulated' => false, 'error' => "Resend Exception: " . $e->getMessage()];
+            $lastError = "Resend Exception: " . $e->getMessage();
+            error_log($lastError);
         }
     }
 
-    // 0.1 Support for Brevo HTTPS API (Port 443 - Bypasses Cloud SMTP Port Restrictions)
-    $brevoKey = getenv('BREVO_API_KEY') ?: '';
+    // 3. Tertiary Fallback: Brevo HTTPS API (Port 443)
+    $brevoKey = getenv('BREVO_API_KEY') ?: ($config['brevo_api_key'] ?? '');
     if (!empty($brevoKey)) {
         try {
             $ch = curl_init('https://api.brevo.com/v3/smtp/email');
@@ -215,98 +229,45 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
             curl_close($ch);
             if ($code >= 200 && $code < 300) {
                 return ['success' => true, 'sent' => true, 'simulated' => false, 'error' => null];
+            } else {
+                $lastError = "Brevo API Failed ($code): " . $res;
             }
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            $lastError = "Brevo Exception: " . $e->getMessage();
+        }
     }
 
-    // 1. If SMTP credentials exist, send live email over the internet
-    if (!empty($config['username']) && !empty($config['password'])) {
+    // 4. Local Development Fallback: If no delivery method succeeded on localhost
+    $isLocal = (!isset($_SERVER['REMOTE_ADDR']) || in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1', 'localhost']) || str_contains($_SERVER['HTTP_HOST'] ?? '', 'localhost') || php_sapi_name() === 'cli');
+    if ($isLocal) {
         try {
-            $mail = create_mailer();
-            $mail->addAddress($toEmail, $toName);
-            $mail->isHTML(true);
-            $mail->Subject = $subject;
-            $mail->Body    = $htmlBody;
-            $mail->AltBody = $altBody ?: strip_tags($htmlBody);
-
-            $mail->send();
-            return [
-                'success'   => true, 
-                'sent'      => true, 
-                'simulated' => false, 
-                'error'     => null
-            ];
-        } catch (Exception $e) {
-            $errorMsg = !empty($mail->ErrorInfo) ? $mail->ErrorInfo : $e->getMessage();
-            error_log("PHPMailer Live Send Error: " . $errorMsg);
-            
-            // Local development fallback: do not break workflow if SMTP fails on localhost
-            $isLocal = (!isset($_SERVER['REMOTE_ADDR']) || in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1', 'localhost']) || str_contains($_SERVER['HTTP_HOST'] ?? '', 'localhost'));
-            if ($isLocal) {
-                try {
-                    $logDir = __DIR__ . '/../logs';
-                    if (!is_dir($logDir)) {
-                        @mkdir($logDir, 0777, true);
-                    }
-                    $logLine = "[" . date('Y-m-d H:i:s') . "] (FALLBACK - SMTP FAILED: {$errorMsg}) TO: {$toEmail} ({$toName}) | SUBJECT: {$subject}\n";
-                    @file_put_contents($logDir . '/mail.log', $logLine, FILE_APPEND);
-                    @file_put_contents($logDir . '/latest_reset_email.html', $htmlBody);
-                } catch (\Throwable $t) {}
-
-                return [
-                    'success'   => true, 
-                    'sent'      => false, 
-                    'simulated' => true, 
-                    'error'     => $errorMsg,
-                    'notice'    => 'Live SMTP authentication failed. Operating in local fallback mode.'
-                ];
+            $logDir = __DIR__ . '/../logs';
+            if (!is_dir($logDir)) {
+                @mkdir($logDir, 0777, true);
             }
-
-            return [
-                'success'   => false, 
-                'sent'      => false, 
-                'simulated' => false, 
-                'error'     => $errorMsg
-            ];
-        } catch (\Throwable $t) {
-            error_log("PHPMailer Unexpected Error: " . $t->getMessage());
-            $isLocal = (!isset($_SERVER['REMOTE_ADDR']) || in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1', 'localhost']) || str_contains($_SERVER['HTTP_HOST'] ?? '', 'localhost'));
-            if ($isLocal) {
-                return [
-                    'success'   => true, 
-                    'sent'      => false, 
-                    'simulated' => true, 
-                    'error'     => $t->getMessage(),
-                    'notice'    => 'Local fallback mode enabled.'
-                ];
+            $logLine = "[" . date('Y-m-d H:i:s') . "] (FALLBACK - LIVE FAILED: {$lastError}) TO: {$toEmail} ({$toName}) | SUBJECT: {$subject}\n";
+            @file_put_contents($logDir . '/mail.log', $logLine, FILE_APPEND);
+            if (stripos($subject, 'Verification') !== false || stripos($subject, 'Verify') !== false) {
+                @file_put_contents($logDir . '/latest_verification_email.html', $htmlBody);
+            } else {
+                @file_put_contents($logDir . '/latest_reset_email.html', $htmlBody);
             }
-            return [
-                'success'   => false, 
-                'sent'      => false, 
-                'simulated' => false, 
-                'error'     => $t->getMessage()
-            ];
-        }
+        } catch (\Throwable $t) {}
+
+        return [
+            'success'   => true, 
+            'sent'      => false, 
+            'simulated' => true, 
+            'error'     => $lastError,
+            'notice'    => 'Local simulated delivery fallback.'
+        ];
     }
-
-    // 2. If SMTP credentials are not yet configured (Localhost / Testing Mode)
-    // Seamlessly simulate delivery so developers/users are never blocked by an error screen!
-    try {
-        $logDir = __DIR__ . '/../logs';
-        if (!is_dir($logDir)) {
-            @mkdir($logDir, 0777, true);
-        }
-        $logLine = "[" . date('Y-m-d H:i:s') . "] TO: {$toEmail} ({$toName}) | SUBJECT: {$subject}\n";
-        @file_put_contents($logDir . '/mail.log', $logLine, FILE_APPEND);
-        @file_put_contents($logDir . '/latest_reset_email.html', $htmlBody);
-    } catch (\Throwable $e) {}
 
     return [
-        'success'   => true, 
+        'success'   => false, 
         'sent'      => false, 
-        'simulated' => true, 
-        'error'     => null,
-        'notice'    => 'Simulated delivery (SMTP credentials not yet entered in config/mail.php).'
+        'simulated' => false, 
+        'error'     => $lastError ?: 'No active mail transport available.'
     ];
 }
 

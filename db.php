@@ -949,6 +949,8 @@ function is_valid_deliverable_email(string $email, ?string &$errorMessage = null
 
 /**
  * Returns a time-based greeting (morning, afternoon, evening) based on Philippine Standard Time.
+ */
+function get_time_based_greeting(): string {
     $hour = (int)date('G');
     if ($hour >= 5 && $hour < 12) {
         return 'Good morning';

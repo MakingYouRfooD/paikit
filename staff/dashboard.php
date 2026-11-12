@@ -2057,7 +2057,13 @@ $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs WHERE act
 
         if (staffEmailCheckTimeout) clearTimeout(staffEmailCheckTimeout);
         staffEmailCheckTimeout = setTimeout(() => {
-            fetch('../api/check_email.php?email=' + encodeURIComponent(email))
+            const formData = new FormData();
+            formData.append('email', email);
+
+            fetch('../api/check_email', {
+                method: 'POST',
+                body: formData
+            })
                 .then(r => r.json())
                 .then(data => {
                     if (input.value.trim().toLowerCase() !== email.toLowerCase()) return;

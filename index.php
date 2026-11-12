@@ -1117,7 +1117,13 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
         // Debounced API check
         if (emailCheckTimeout) clearTimeout(emailCheckTimeout);
         emailCheckTimeout = setTimeout(() => {
-            fetch('api/check_email.php?email=' + encodeURIComponent(email))
+            const formData = new FormData();
+            formData.append('email', email);
+
+            fetch('api/check_email', {
+                method: 'POST',
+                body: formData
+            })
                 .then(res => res.json())
                 .then(data => {
                     if (emailInput.value.trim().toLowerCase() !== email.toLowerCase()) {

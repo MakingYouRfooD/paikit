@@ -272,8 +272,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="p-2 rounded bg-danger-subtle text-danger border border-danger-subtle fw-bold mt-1">
                                 <i class="bi bi-x-circle-fill me-1"></i> This email is <u>not registered</u> in the system.
                                 <div class="mt-1 small">
-                                    Walang account na nakakabit sa email na ito. 
-                                    <a href="./" class="text-primary text-decoration-underline ms-1">Mag-register dito</a>.
+                                    No account is associated with this email address. 
+                                    <a href="./" class="text-primary text-decoration-underline ms-1">Register an account here</a>.
                                 </div>
                             </div>`;
                         forgotEmailRegistered = false;

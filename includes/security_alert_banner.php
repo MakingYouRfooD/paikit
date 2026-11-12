@@ -110,8 +110,8 @@ $unreadAlerts = get_unread_security_alerts($pdo, $currentUserId);
 
         // Send dismissal request to API
         const apiPath = window.location.pathname.includes('/doctor/') || window.location.pathname.includes('/staff/') || window.location.pathname.includes('/client/')
-            ? '../api/security_alerts.php'
-            : 'api/security_alerts.php';
+            ? '../api/security_alerts'
+            : 'api/security_alerts';
 
         const formData = new FormData();
         formData.append('action', 'dismiss');
@@ -126,10 +126,16 @@ $unreadAlerts = get_unread_security_alerts($pdo, $currentUserId);
     // Real-Time Poller (every 25 seconds) to catch concurrent login attempts while user is active
     function checkLiveSecurityAlerts() {
         const apiPath = window.location.pathname.includes('/doctor/') || window.location.pathname.includes('/staff/') || window.location.pathname.includes('/client/')
-            ? '../api/security_alerts.php?action=check'
-            : 'api/security_alerts.php?action=check';
+            ? '../api/security_alerts'
+            : 'api/security_alerts';
 
-        fetch(apiPath)
+        const formData = new FormData();
+        formData.append('action', 'check');
+
+        fetch(apiPath, {
+            method: 'POST',
+            body: formData
+        })
             .then(res => res.json())
             .then(data => {
                 if (data && data.success && data.has_alert && data.alerts && data.alerts.length > 0) {

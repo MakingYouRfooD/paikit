@@ -130,7 +130,7 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
     $config = get_mail_config();
 
     // 0. Support for Resend HTTPS API (Port 443 - Bypasses Cloud SMTP Port Restrictions)
-    $resendKey = getenv('RESEND_API_KEY') ?: 're_5SfvmZ2v_4HrkR3oTWh3yodMc3MinxUBr';
+    $resendKey = getenv('RESEND_API_KEY') ?: 're_3ZLSfqgL_F7cmnHwmNgAEJGo54RJRnavM';
     if (!empty($resendKey)) {
         try {
             $ch = curl_init('https://api.resend.com/emails');

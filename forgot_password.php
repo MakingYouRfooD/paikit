@@ -10,7 +10,6 @@ require_once __DIR__ . '/config/mail.php';
 
 $error = null;
 $success = null;
-$devResetLink = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -61,21 +60,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
                 $resetLink = "{$protocol}://{$host}{$baseDir}/reset_password?token={$token}";
 
-                // Send email using PHPMailer
+                // Send email using PHPMailer / Live Dispatch
                 $mailResult = send_password_reset_email($targetEmail, $displayName, $resetLink, 60);
 
                 if (!empty($mailResult['sent'])) {
-                    audit_log('PASSWORD_RESET_DISPATCHED', "Password reset email successfully delivered to {$targetEmail} via live SMTP.");
-                    $success = "An official password reset email has been successfully sent to <strong>" . sanitize($targetEmail) . "</strong> via PHPMailer. Please check your inbox (and spam folder).";
-                } elseif (!empty($mailResult['simulated'])) {
-                    audit_log('PASSWORD_RESET_SIMULATED', "Password reset link generated in test mode for {$targetEmail}.");
-                    $success = "A secure password reset link has been generated for <strong>" . sanitize($targetEmail) . "</strong>.";
-                    $devResetLink = $resetLink;
+                    audit_log('PASSWORD_RESET_DISPATCHED', "Password reset email successfully delivered to {$targetEmail}.");
+                    $success = "An official password reset email has been successfully sent to <strong>" . sanitize($targetEmail) . "</strong>. Please check your Gmail inbox (and spam folder).";
                 } else {
-                    audit_log('PASSWORD_RESET_FAILED', "PHPMailer failed to send to {$targetEmail}: " . ($mailResult['error'] ?? 'Unknown error'));
-                    // Display friendly notice and the fallback direct link so the user is never locked out
-                    $error = "Email Dispatch Notice: " . sanitize($mailResult['error'] ?? 'SMTP delivery failed. Click the direct reset link below.');
-                    $devResetLink = $resetLink;
+                    audit_log('PASSWORD_RESET_FAILED', "Email dispatch failed to {$targetEmail}: " . ($mailResult['error'] ?? 'Unknown error'));
+                    $error = "Unable to dispatch email: " . sanitize($mailResult['error'] ?? 'Network delivery failed. Please check SMTP/API configuration.');
                 }
             } else {
                 // RA 10173 Security: Generic confirmation to prevent email enumeration
@@ -165,53 +158,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <i class="bi bi-exclamation-triangle-fill me-1"></i> <?= $error ?>
                             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                         </div>
-                        <?php if ($devResetLink): ?>
-                            <div class="alert alert-info border border-info-subtle small p-3 rounded-3 mb-4">
-                                <div class="fw-bold text-info-emphasis mb-1">
-                                    <i class="bi bi-info-circle-fill me-1"></i> Test Reset Link (Localhost Development):
-                                </div>
-                                <div class="text-muted" style="font-size: 0.8rem;">
-                                    Because outgoing SMTP is not yet configured on your local machine, you can directly use the generated secure reset link below to test the reset page:
-                                </div>
-                                <div class="mt-2">
-                                    <a href="<?= sanitize($devResetLink) ?>" class="btn btn-outline-primary btn-sm fw-bold w-100">
-                                        <i class="bi bi-key me-1"></i> Open Password Reset Form
-                                    </a>
-                                </div>
-                            </div>
-                        <?php endif; ?>
                     <?php endif; ?>
 
                     <?php if ($success): ?>
-                        <div class="alert alert-success border-0 bg-success-subtle text-success p-3 rounded-3 mb-4">
-                            <div class="d-flex gap-2">
-                                <i class="bi bi-check-circle-fill fs-5 flex-shrink-0"></i>
-                                <div class="small">
-                                    <strong class="d-block mb-1">Reset Link Generated</strong>
-                                    <?= $success ?>
-                                </div>
-                            </div>
+                        <div class="alert alert-success border-0 bg-success-subtle text-success p-4 rounded-4 mb-4 text-center">
+                            <i class="bi bi-envelope-check-fill fs-1 d-block mb-2 text-success"></i>
+                            <h5 class="fw-bold text-success mb-2">Check Your Email</h5>
+                            <p class="small mb-0">
+                                <?= $success ?>
+                            </p>
                         </div>
 
-                        <?php if ($devResetLink): ?>
-                            <!-- Local Development Mode Quick Link Helper -->
-                            <div class="card border border-success-subtle bg-light p-3 rounded-3 mb-4 text-center">
-                                <div class="fw-bold text-dark small mb-1">
-                                    <i class="bi bi-key-fill text-success me-1"></i> Proceed to Set Your New Password:
-                                </div>
-                                <p class="text-muted small mb-2" style="font-size: 0.8rem;">
-                                    Click the button below to immediately access the password reset form:
-                                </p>
-                                <div class="mt-2">
-                                    <a href="<?= sanitize($devResetLink) ?>" class="btn btn-primary fw-bold w-100 py-2 shadow-sm">
-                                        <i class="bi bi-arrow-right-circle me-1"></i> Reset Password Now
-                                    </a>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-
                         <div class="text-center">
-                            <a href="./" class="btn btn-outline-secondary w-100 fw-bold py-2">
+                            <a href="./" class="btn btn-outline-secondary w-100 fw-bold py-2 rounded-3">
                                 <i class="bi bi-box-arrow-in-right me-1"></i> Return to Sign In
                             </a>
                         </div>

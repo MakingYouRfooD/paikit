@@ -233,9 +233,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['action']) && 
             exit;
         }
 
-        if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            header("Location: dashboard?error=" . urlencode("Please provide a valid official email address.") . "&open_settings=1&tab=profile");
-            exit;
+        if (!empty($email)) {
+            $emailErr = null;
+            if (!is_valid_deliverable_email($email, $emailErr)) {
+                header("Location: dashboard?error=" . urlencode($emailErr ?: "Please provide a valid, legitimate email address.") . "&open_settings=1&tab=profile");
+                exit;
+            }
+
+            $stmtDup = $pdo->prepare("SELECT user_id FROM users WHERE LOWER(email) = LOWER(?) AND user_id != ?");
+            $stmtDup->execute([$email, $sessUserId]);
+            if ($stmtDup->fetch()) {
+                header("Location: dashboard?error=" . urlencode("The email address '{$email}' is already in use by another account.") . "&open_settings=1&tab=profile");
+                exit;
+            }
         }
 
         $stmtUpU = $pdo->prepare("UPDATE users SET full_name = ?, email = ? WHERE user_id = ?");

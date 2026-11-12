@@ -1727,7 +1727,8 @@ $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs WHERE act
 
                     <div class="mb-3">
                         <label class="form-label fw-bold small text-dark">Official Email Address (Used for Sign In)</label>
-                        <input type="email" name="email" class="form-control" placeholder="dr.mercado@paikit.health" required>
+                        <input type="email" name="email" id="staffCreateEmail" class="form-control" placeholder="dr.mercado@paikit.health" required oninput="handleStaffEmailInput()">
+                        <div id="staffEmailFeedback" class="mt-1" style="font-size: 0.73rem;"></div>
                     </div>
 
                     <div class="mb-3">
@@ -2025,7 +2026,79 @@ $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs WHERE act
         return hasLen && hasUpper && hasLower && hasNumber && hasSpecial;
     }
 
+    let staffEmailCheckTimeout = null;
+    let staffEmailStatus = 'idle';
+    let staffEmailMessage = '';
+
+    function handleStaffEmailInput() {
+        const input = document.getElementById('staffCreateEmail');
+        const feedback = document.getElementById('staffEmailFeedback');
+        if (!input || !feedback) return;
+
+        const email = input.value.trim();
+        input.classList.remove('is-valid', 'is-invalid');
+
+        if (!email) {
+            feedback.innerHTML = '';
+            staffEmailStatus = 'idle';
+            staffEmailMessage = '';
+            return;
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            feedback.innerHTML = '<span class="text-muted">Enter complete email format</span>';
+            staffEmailStatus = 'typing';
+            return;
+        }
+
+        feedback.innerHTML = '<span class="text-muted"><i class="spinner-border spinner-border-sm me-1" style="width: 0.75rem; height: 0.75rem;"></i> Verifying email...</span>';
+        staffEmailStatus = 'checking';
+
+        if (staffEmailCheckTimeout) clearTimeout(staffEmailCheckTimeout);
+        staffEmailCheckTimeout = setTimeout(() => {
+            fetch('../api/check_email.php?email=' + encodeURIComponent(email))
+                .then(r => r.json())
+                .then(data => {
+                    if (input.value.trim().toLowerCase() !== email.toLowerCase()) return;
+                    if (data.status === 'registered') {
+                        input.classList.add('is-invalid');
+                        input.classList.remove('is-valid');
+                        feedback.innerHTML = `<span class="text-danger fw-bold"><i class="bi bi-x-circle-fill me-1"></i> ${data.message}</span>`;
+                        staffEmailStatus = 'registered';
+                        staffEmailMessage = data.message;
+                    } else if (data.status === 'invalid') {
+                        input.classList.add('is-invalid');
+                        input.classList.remove('is-valid');
+                        feedback.innerHTML = `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${data.message}</span>`;
+                        staffEmailStatus = 'invalid';
+                        staffEmailMessage = data.message;
+                    } else if (data.status === 'available') {
+                        input.classList.remove('is-invalid');
+                        input.classList.add('is-valid');
+                        feedback.innerHTML = `<span class="text-success fw-bold"><i class="bi bi-check-circle-fill me-1"></i> Valid and available.</span>`;
+                        staffEmailStatus = 'available';
+                        staffEmailMessage = '';
+                    }
+                })
+                .catch(() => {
+                    feedback.innerHTML = '';
+                    staffEmailStatus = 'idle';
+                });
+        }, 350);
+    }
+
     function validateCreatePersonnel(e) {
+        if (staffEmailStatus === 'registered') {
+            alert('This email address is already registered to another personnel account.');
+            if (e) e.preventDefault();
+            return false;
+        }
+        if (staffEmailStatus === 'invalid') {
+            alert(staffEmailMessage || 'Please enter a valid, legitimate email address.');
+            if (e) e.preventDefault();
+            return false;
+        }
         if (!checkStaffCreatePwdRules()) {
             alert('Initial password must meet all security requirements: minimum 8 characters, uppercase letter (A-Z), lowercase letter (a-z), number (0-9), and a special character.');
             if (e) e.preventDefault();

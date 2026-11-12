@@ -810,8 +810,9 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
                                 <label class="form-label fw-bold small text-dark mb-1">Email Address (Required)</label>
                                 <div class="input-group input-group-sm">
                                     <span class="input-group-text"><i class="bi bi-envelope"></i></span>
-                                    <input type="email" name="email" id="regEmail" class="form-control" placeholder="juan.delacruz@gmail.com" required value="<?= ($errorScope === 'signup') ? sanitize($_POST['email'] ?? '') : '' ?>">
+                                    <input type="email" name="email" id="regEmail" class="form-control" placeholder="juan.delacruz@gmail.com" required value="<?= ($errorScope === 'signup') ? sanitize($_POST['email'] ?? '') : '' ?>" oninput="handleRegEmailInput()" onblur="handleRegEmailBlur()">
                                 </div>
+                                <div id="regEmailFeedback" class="mt-1" style="font-size: 0.73rem;"></div>
                                 <div class="form-text small text-muted" style="font-size: 0.72rem;">Used for official clinic notifications and electronic prescription copies.</div>
                             </div>
 
@@ -1045,6 +1046,138 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
         el.value = el.value.replace(/([a-zA-ZñÑ])\1{2,}/gi, '$1$1');
     }
 
+    let emailCheckTimeout = null;
+    let emailCheckState = 'idle'; // 'idle' | 'typing' | 'checking' | 'available' | 'registered' | 'invalid'
+    let emailFeedbackMessage = '';
+
+    function handleRegEmailInput() {
+        const emailInput = document.getElementById('regEmail');
+        const feedback = document.getElementById('regEmailFeedback');
+        if (!emailInput || !feedback) return;
+
+        const email = emailInput.value.trim();
+        emailInput.classList.remove('is-valid', 'is-invalid');
+
+        if (!email) {
+            feedback.innerHTML = '';
+            emailCheckState = 'idle';
+            emailFeedbackMessage = '';
+            return;
+        }
+
+        // Basic format check
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const parts = email.toLowerCase().split('@');
+        const local = parts[0] || '';
+        const dom = parts[1] || '';
+
+        // Immediate client-side typo detection
+        const commonTypos = {
+            'gamil.com': 'gmail.com', 'gmaill.com': 'gmail.com', 'gmial.com': 'gmail.com', 'gmai.com': 'gmail.com', 'gmal.com': 'gmail.com',
+            'yaho.com': 'yahoo.com', 'yahooo.com': 'yahoo.com', 'yhaoo.com': 'yahoo.com', 'hotmial.com': 'hotmail.com', 'outlok.com': 'outlook.com'
+        };
+        if (commonTypos[dom]) {
+            emailInput.classList.add('is-invalid');
+            feedback.innerHTML = `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i> Did you mean <u>@${commonTypos[dom]}</u>? Please check your email spelling.</span>`;
+            emailCheckState = 'invalid';
+            emailFeedbackMessage = `Did you mean @${commonTypos[dom]}? Please check your email spelling.`;
+            return;
+        }
+
+        // Immediate client-side disposable detection
+        const disposableList = ['mailinator.com', 'tempmail.com', 'temp-mail.org', 'temp-mail.io', 'guerrillamail.com', '10minutemail.com', 'trashmail.com', 'yopmail.com', 'dispostable.com', 'getnada.com', 'throwawaymail.com', 'fakeinbox.com', 'burnermail.io'];
+        if (disposableList.includes(dom) || dom.includes('tempmail') || dom.includes('disposable') || dom.includes('throwaway')) {
+            emailInput.classList.add('is-invalid');
+            feedback.innerHTML = `<span class="text-danger fw-bold"><i class="bi bi-x-circle-fill me-1"></i> Disposable/temporary email (@${dom}) is prohibited. Please use a permanent personal email (e.g. Gmail, Yahoo).</span>`;
+            emailCheckState = 'invalid';
+            emailFeedbackMessage = 'Disposable email services are prohibited. Please use a permanent personal email address.';
+            return;
+        }
+
+        // Obvious dummy email check
+        const dummyPatterns = ['test', 'fake', 'dummy', 'sample', 'asdf', 'asdasd', 'qwerty', '123456', 'noreply', 'admin'];
+        if (dummyPatterns.includes(local) && ['test.com', 'example.com', 'fake.com', 'sample.com', 'asdasd.com'].includes(dom)) {
+            emailInput.classList.add('is-invalid');
+            feedback.innerHTML = '<span class="text-danger fw-bold"><i class="bi bi-x-circle-fill me-1"></i> Test or dummy email is not permitted. Please enter your real personal email.</span>';
+            emailCheckState = 'invalid';
+            emailFeedbackMessage = 'Test or dummy email is not permitted. Please enter your real personal email.';
+            return;
+        }
+
+        if (!emailRegex.test(email)) {
+            feedback.innerHTML = '<span class="text-muted"><i class="bi bi-pencil me-1"></i> Please complete your email address (e.g. juan.delacruz@gmail.com)</span>';
+            emailCheckState = 'typing';
+            return;
+        }
+
+        // Show live checking state
+        feedback.innerHTML = '<span class="text-muted"><i class="spinner-border spinner-border-sm me-1" style="width: 0.75rem; height: 0.75rem;"></i> Verifying email legitimacy & availability...</span>';
+        emailCheckState = 'checking';
+
+        // Debounced API check
+        if (emailCheckTimeout) clearTimeout(emailCheckTimeout);
+        emailCheckTimeout = setTimeout(() => {
+            fetch('api/check_email.php?email=' + encodeURIComponent(email))
+                .then(res => res.json())
+                .then(data => {
+                    if (emailInput.value.trim().toLowerCase() !== email.toLowerCase()) {
+                        return; // Stale request
+                    }
+                    if (data.status === 'registered') {
+                        emailInput.classList.add('is-invalid');
+                        emailInput.classList.remove('is-valid');
+                        feedback.innerHTML = `
+                            <div class="p-2 rounded bg-danger-subtle text-danger border border-danger-subtle fw-bold mt-1">
+                                <div class="d-flex align-items-center justify-content-between flex-wrap gap-1">
+                                    <span><i class="bi bi-x-circle-fill me-1"></i> This email is <u>already registered</u> to an existing account!</span>
+                                    <span class="d-inline-flex align-items-center gap-1">
+                                        <button type="button" onclick="switchToSignIn('${email}')" class="btn btn-danger btn-sm py-0 px-2 fw-bold shadow-none" style="font-size: 0.72rem;">Sign In</button>
+                                        <a href="forgot_password" class="btn btn-link btn-sm py-0 px-1 text-danger fw-bold text-decoration-underline" style="font-size: 0.72rem;">Forgot Password?</a>
+                                    </span>
+                                </div>
+                            </div>`;
+                        emailCheckState = 'registered';
+                        emailFeedbackMessage = data.message;
+                    } else if (data.status === 'invalid') {
+                        emailInput.classList.add('is-invalid');
+                        emailInput.classList.remove('is-valid');
+                        feedback.innerHTML = `<span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i> ${data.message}</span>`;
+                        emailCheckState = 'invalid';
+                        emailFeedbackMessage = data.message;
+                    } else if (data.status === 'available') {
+                        emailInput.classList.remove('is-invalid');
+                        emailInput.classList.add('is-valid');
+                        feedback.innerHTML = `<span class="text-success fw-bold"><i class="bi bi-check-circle-fill me-1"></i> Email is legitimate, verified, and available.</span>`;
+                        emailCheckState = 'available';
+                        emailFeedbackMessage = '';
+                    }
+                })
+                .catch(err => {
+                    console.error('Email check error:', err);
+                    feedback.innerHTML = '';
+                    emailCheckState = 'idle';
+                });
+        }, 350);
+    }
+
+    function handleRegEmailBlur() {
+        const emailInput = document.getElementById('regEmail');
+        if (emailInput && emailInput.value.trim() && (emailCheckState === 'typing' || emailCheckState === 'idle')) {
+            handleRegEmailInput();
+        }
+    }
+
+    function switchToSignIn(prefillEmail) {
+        const signinTab = document.getElementById('signin-tab');
+        if (signinTab) signinTab.click();
+        const loginEmail = document.getElementById('loginEmail');
+        if (loginEmail && prefillEmail) {
+            loginEmail.value = prefillEmail;
+            const loginPwd = document.getElementById('loginPassword');
+            if (loginPwd) loginPwd.focus();
+        }
+    }
+
     function showModalFloatingError(msg, targetInputId) {
         const alertEl = document.getElementById('modalFloatingAlert');
         const textEl = document.getElementById('modalFloatingAlertText');
@@ -1118,6 +1251,18 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             showModalFloatingError('Please enter a valid email address (e.g. juan.delacruz@gmail.com).', 'regEmail');
+            e.preventDefault();
+            return false;
+        }
+
+        if (emailCheckState === 'registered') {
+            showModalFloatingError('The email entered is already registered to an existing account. Please sign in or use Forgot Password.', 'regEmail');
+            e.preventDefault();
+            return false;
+        }
+
+        if (emailCheckState === 'invalid') {
+            showModalFloatingError(emailFeedbackMessage || 'Please enter a legitimate, active email address.', 'regEmail');
             e.preventDefault();
             return false;
         }

@@ -143,7 +143,8 @@ function send_system_email(string $toEmail, string $toName, string $subject, str
     $config = get_mail_config();
     $lastError = null;
 
-    $isCloudOrRender = !empty(getenv('RENDER')) || (!empty($_SERVER['HTTP_HOST']) && str_contains($_SERVER['HTTP_HOST'], 'onrender.com'));
+    $isLocal = (!isset($_SERVER['REMOTE_ADDR']) || in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1', 'localhost']) || str_contains($_SERVER['HTTP_HOST'] ?? '', 'localhost') || php_sapi_name() === 'cli');
+    $isCloudOrRender = !$isLocal || !empty(getenv('RENDER')) || (!empty($_SERVER['HTTP_HOST']) && str_contains($_SERVER['HTTP_HOST'], 'onrender.com'));
     $brevoKey = getenv('BREVO_API_KEY') ?: ($config['brevo_api_key'] ?? '');
 
     // 1. Cloud Host Delivery (Render): Prioritize Brevo HTTPS API (Port 443)

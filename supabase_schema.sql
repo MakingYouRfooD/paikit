@@ -65,6 +65,11 @@ CREATE TABLE users (
   role VARCHAR(20) NOT NULL CHECK (role IN ('Doctor', 'Staff', 'Client')),
   is_verified SMALLINT NOT NULL DEFAULT 0,
   email_verified_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+  active_session_id VARCHAR(128) DEFAULT NULL,
+  current_device_token VARCHAR(128) DEFAULT NULL,
+  current_device_ip VARCHAR(45) DEFAULT NULL,
+  current_device_name VARCHAR(255) DEFAULT NULL,
+  last_activity_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_users_patient_id ON users(patient_id);
@@ -172,6 +177,19 @@ CREATE TABLE email_verifications (
 CREATE INDEX idx_email_verif_token ON email_verifications(token);
 CREATE INDEX idx_email_verif_code ON email_verifications(email, otp_code);
 CREATE INDEX idx_email_verif_user ON email_verifications(user_id);
+
+-- 3.8.2 Security Alerts Table
+CREATE TABLE security_alerts (
+  alert_id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  alert_type VARCHAR(50) NOT NULL DEFAULT 'CONCURRENT_LOGIN_BLOCKED',
+  message TEXT NOT NULL,
+  attempt_ip VARCHAR(45) DEFAULT NULL,
+  attempt_device VARCHAR(255) DEFAULT NULL,
+  is_read SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_sec_alerts_user ON security_alerts(user_id, is_read);
 
 -- 3.9 System Settings Table
 CREATE TABLE system_settings (

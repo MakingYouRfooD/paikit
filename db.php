@@ -208,6 +208,350 @@ function ensure_email_verification_schema(?PDO $pdo = null): void {
 ensure_email_verification_schema($pdo);
 
 /**
+ * Ensures single active session / device security schema exists in MySQL and PostgreSQL.
+ */
+function ensure_device_session_schema(?PDO $pdo = null): void {
+    static $ensured = false;
+    if ($ensured) return;
+    $ensured = true;
+
+    try {
+        if (!$pdo) {
+            $pdo = get_db();
+        }
+        $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
+
+        // Fetch existing columns in users table
+        $cols = [];
+        if ($driver === 'pgsql') {
+            $stmt = $pdo->query("SELECT column_name FROM information_schema.columns WHERE table_name = 'users'");
+            $cols = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        } else {
+            $stmt = $pdo->query("SHOW COLUMNS FROM `users`");
+            while ($col = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $cols[] = $col['Field'];
+            }
+        }
+
+        $neededCols = [
+            'active_session_id'    => "VARCHAR(128) DEFAULT NULL",
+            'current_device_token' => "VARCHAR(128) DEFAULT NULL",
+            'current_device_ip'    => "VARCHAR(45) DEFAULT NULL",
+            'current_device_name'  => "VARCHAR(255) DEFAULT NULL",
+            'last_activity_at'     => ($driver === 'pgsql') ? "TIMESTAMP NULL DEFAULT NULL" : "DATETIME DEFAULT NULL"
+        ];
+
+        foreach ($neededCols as $colName => $colDef) {
+            if (!in_array($colName, $cols, true)) {
+                if ($driver === 'pgsql') {
+                    $pdo->exec("ALTER TABLE users ADD COLUMN {$colName} {$colDef}");
+                } else {
+                    $pdo->exec("ALTER TABLE `users` ADD COLUMN `{$colName}` {$colDef}");
+                }
+            }
+        }
+
+        // Create security_alerts table
+        if ($driver === 'pgsql') {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS security_alerts (
+                    alert_id SERIAL PRIMARY KEY,
+                    user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    alert_type VARCHAR(50) NOT NULL DEFAULT 'CONCURRENT_LOGIN_BLOCKED',
+                    message TEXT NOT NULL,
+                    attempt_ip VARCHAR(45) DEFAULT NULL,
+                    attempt_device VARCHAR(255) DEFAULT NULL,
+                    is_read SMALLINT NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_sec_user_read ON security_alerts(user_id, is_read);
+            ");
+        } else {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS `security_alerts` (
+                    `alert_id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `user_id` INT NOT NULL,
+                    `alert_type` VARCHAR(50) NOT NULL DEFAULT 'CONCURRENT_LOGIN_BLOCKED',
+                    `message` TEXT NOT NULL,
+                    `attempt_ip` VARCHAR(45) DEFAULT NULL,
+                    `attempt_device` VARCHAR(255) DEFAULT NULL,
+                    `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX `idx_sec_user_read` (`user_id`, `is_read`),
+                    FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ");
+        }
+    } catch (\Throwable $e) {
+        error_log("ensure_device_session_schema warning: " . $e->getMessage());
+    }
+}
+
+// Automatically enforce device session schema
+ensure_device_session_schema($pdo);
+
+/**
+ * Resolves real client IP address safely
+ */
+function get_client_ip(): string {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+    if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+        $ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
+    } elseif (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $parts = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+        $candidate = trim($parts[0]);
+        if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+            $ip = $candidate;
+        }
+    } elseif (!empty($_SERVER['HTTP_CLIENT_IP'])) {
+        $candidate = trim($_SERVER['HTTP_CLIENT_IP']);
+        if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+            $ip = $candidate;
+        }
+    }
+    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '127.0.0.1';
+}
+
+/**
+ * Returns human-readable device & browser label
+ */
+function get_device_description(?string $ua = null): string {
+    $agent = $ua ?? ($_SERVER['HTTP_USER_AGENT'] ?? '');
+    if (empty($agent)) {
+        return 'Unknown Device';
+    }
+
+    $browser = 'Web Browser';
+    if (stripos($agent, 'Firefox') !== false) {
+        $browser = 'Firefox';
+    } elseif (stripos($agent, 'Edg') !== false) {
+        $browser = 'Microsoft Edge';
+    } elseif (stripos($agent, 'OPR') !== false || stripos($agent, 'Opera') !== false) {
+        $browser = 'Opera';
+    } elseif (stripos($agent, 'SamsungBrowser') !== false) {
+        $browser = 'Samsung Internet';
+    } elseif (stripos($agent, 'Chrome') !== false) {
+        $browser = 'Google Chrome';
+    } elseif (stripos($agent, 'Safari') !== false) {
+        $browser = 'Safari';
+    }
+
+    $platform = 'Device';
+    if (stripos($agent, 'iPhone') !== false) {
+        $platform = 'iPhone';
+    } elseif (stripos($agent, 'iPad') !== false) {
+        $platform = 'iPad';
+    } elseif (stripos($agent, 'Android') !== false) {
+        $platform = 'Android Phone';
+    } elseif (stripos($agent, 'Windows NT 10.0') !== false) {
+        $platform = 'Windows 10/11 PC';
+    } elseif (stripos($agent, 'Windows') !== false) {
+        $platform = 'Windows PC';
+    } elseif (stripos($agent, 'Macintosh') !== false || stripos($agent, 'Mac OS') !== false) {
+        $platform = 'Mac';
+    } elseif (stripos($agent, 'Linux') !== false) {
+        $platform = 'Linux';
+    }
+
+    return "{$browser} on {$platform}";
+}
+
+/**
+ * Cryptographic device token cookie management (persistent per browser)
+ */
+function get_device_token(): string {
+    if (!empty($_COOKIE['pk_device_token']) && is_string($_COOKIE['pk_device_token']) && strlen($_COOKIE['pk_device_token']) >= 32) {
+        return $_COOKIE['pk_device_token'];
+    }
+    $token = bin2hex(random_bytes(32));
+    $_COOKIE['pk_device_token'] = $token;
+    if (!headers_sent()) {
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+        setcookie('pk_device_token', $token, [
+            'expires'  => time() + (86400 * 365), // 1 year persistence
+            'path'     => '/',
+            'secure'   => $isHttps,
+            'httponly' => true,
+            'samesite' => 'Lax'
+        ]);
+    }
+    return $token;
+}
+
+/**
+ * Checks whether an account is actively logged in on another device.
+ * Enforces strictly single active session per user.
+ */
+function check_concurrent_device_login(PDO $pdo, int $userId): array {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT active_session_id, current_device_token, current_device_ip, current_device_name, last_activity_at 
+            FROM users 
+            WHERE user_id = ?
+        ");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            return ['blocked' => false];
+        }
+
+        $activeSession     = $user['active_session_id'] ?? null;
+        $lastActivity      = $user['last_activity_at'] ?? null;
+        $activeDeviceToken = $user['current_device_token'] ?? null;
+
+        // 15-minute clinical inactivity threshold (standard HIPAA / RA 10173 session lifetime)
+        $timeoutSeconds = 900;
+
+        if (!empty($activeSession) && !empty($lastActivity)) {
+            $lastTime = strtotime($lastActivity);
+            $diff = time() - $lastTime;
+
+            // If last active was within the active timeout window
+            if ($diff < $timeoutSeconds) {
+                $thisDeviceToken = get_device_token();
+
+                // If active device token exists and does not match the attempting device
+                if (!empty($activeDeviceToken) && !hash_equals($activeDeviceToken, $thisDeviceToken)) {
+                    return [
+                        'blocked'       => true,
+                        'device'        => $user['current_device_name'] ?: 'Another device',
+                        'ip'            => $user['current_device_ip'] ?: 'Unknown IP',
+                        'last_activity' => $user['last_activity_at'],
+                        'seconds_ago'   => $diff
+                    ];
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log("check_concurrent_device_login error: " . $e->getMessage());
+    }
+
+    return ['blocked' => false];
+}
+
+/**
+ * Records newly authorized active device login session
+ */
+function record_active_login(PDO $pdo, int $userId): void {
+    try {
+        $deviceToken = get_device_token();
+        $deviceIp    = get_client_ip();
+        $deviceName  = get_device_description();
+        $sessId      = session_id();
+        $now         = date('Y-m-d H:i:s');
+
+        $stmt = $pdo->prepare("
+            UPDATE users 
+            SET active_session_id = ?,
+                current_device_token = ?,
+                current_device_ip = ?,
+                current_device_name = ?,
+                last_activity_at = ?
+            WHERE user_id = ?
+        ");
+        $stmt->execute([$sessId, $deviceToken, $deviceIp, $deviceName, $now, $userId]);
+    } catch (\Throwable $e) {
+        error_log("record_active_login error: " . $e->getMessage());
+    }
+}
+
+/**
+ * Updates last_activity_at for active user (throttled to at most once per 30 seconds)
+ */
+function update_user_activity(?PDO $pdo = null): void {
+    $userId = $_SESSION['user_id'] ?? null;
+    if (!$userId) return;
+
+    $now = time();
+    $lastUpdate = $_SESSION['last_activity_ping'] ?? 0;
+    if (($now - $lastUpdate) >= 30) {
+        $_SESSION['last_activity_ping'] = $now;
+        try {
+            if (!$pdo) {
+                $pdo = get_db();
+            }
+            $stmt = $pdo->prepare("UPDATE users SET last_activity_at = ? WHERE user_id = ?");
+            $stmt->execute([date('Y-m-d H:i:s', $now), (int)$userId]);
+        } catch (\Throwable $e) {
+            // Fail silently
+        }
+    }
+}
+
+/**
+ * Clears active login session on explicit user logout
+ */
+function clear_active_login(PDO $pdo, int $userId): void {
+    try {
+        $stmt = $pdo->prepare("
+            UPDATE users 
+            SET active_session_id = NULL,
+                current_device_token = NULL,
+                last_activity_at = NULL
+            WHERE user_id = ?
+        ");
+        $stmt->execute([$userId]);
+    } catch (\Throwable $e) {
+        error_log("clear_active_login error: " . $e->getMessage());
+    }
+}
+
+/**
+ * Inserts in-app security alert notification
+ */
+function record_security_alert(
+    PDO $pdo, 
+    int $userId, 
+    string $type, 
+    string $message, 
+    ?string $attemptIp = null, 
+    ?string $attemptDevice = null
+): int {
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO security_alerts (user_id, alert_type, message, attempt_ip, attempt_device, is_read, created_at)
+            VALUES (?, ?, ?, ?, ?, 0, ?)
+        ");
+        $stmt->execute([$userId, $type, $message, $attemptIp, $attemptDevice, date('Y-m-d H:i:s')]);
+        return (int)$pdo->lastInsertId();
+    } catch (\Throwable $e) {
+        error_log("record_security_alert error: " . $e->getMessage());
+        return 0;
+    }
+}
+
+/**
+ * Fetches unread security alerts for current user
+ */
+function get_unread_security_alerts(PDO $pdo, int $userId): array {
+    try {
+        $stmt = $pdo->prepare("
+            SELECT * FROM security_alerts 
+            WHERE user_id = ? AND is_read = 0 
+            ORDER BY alert_id DESC 
+            LIMIT 5
+        ");
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * Marks security alert as read
+ */
+function mark_security_alert_read(PDO $pdo, int $alertId, int $userId): bool {
+    try {
+        $stmt = $pdo->prepare("UPDATE security_alerts SET is_read = 1 WHERE alert_id = ? AND user_id = ?");
+        return $stmt->execute([$alertId, $userId]);
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
  * Security: Authentication Check
  */
 function is_logged_in(): bool {
@@ -221,6 +565,7 @@ function get_auth_user(): ?array {
     if (!is_logged_in()) {
         return null;
     }
+    update_user_activity();
     return [
         'user_id'    => $_SESSION['user_id'] ?? null,
         'username'   => $_SESSION['username'] ?? '',
@@ -494,9 +839,116 @@ function is_valid_person_name(string $name, int $minLetters = 2): bool {
 }
 
 /**
- * Returns a time-based greeting (morning, afternoon, evening) based on Philippine Standard Time.
+ * Strict Deliverable Email Validator:
+ * 1. Validates standard RFC email syntax (filter_var).
+ * 2. Blocks known disposable / throwaway temporary email services (e.g. mailinator, tempmail, guerrillamail, yopmail, 10minutemail).
+ * 3. Catches common typo domains (e.g. gamil.com, yaho.com, outlok.com, hotmial.com).
+ * 4. Rejects obvious fake/dummy inputs (e.g. test@test.com, fake@fake.com, asdasd@asdasd.com).
+ * 5. Verifies active DNS MX or A records to ensure domain is real and can receive emails.
  */
-function get_time_based_greeting(): string {
+function is_valid_deliverable_email(string $email, ?string &$errorMessage = null): bool {
+    $email = trim($email);
+
+    // 1. Basic empty & syntax check
+    if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 100) {
+        $errorMessage = "Please enter a valid email address format (e.g. juan.delacruz@gmail.com).";
+        return false;
+    }
+
+    $parts = explode('@', $email, 2);
+    if (count($parts) !== 2) {
+        $errorMessage = "Invalid email format.";
+        return false;
+    }
+
+    $localPart = strtolower(trim($parts[0]));
+    $domain    = strtolower(trim($parts[1]));
+
+    // 2. Reject obvious fake local parts or gibberish
+    $dummyLocalPatterns = [
+        'test', 'testing', 'fake', 'dummy', 'sample', 'asdf', 'asdasd', 'qwerty',
+        '123456', 'noreply', 'no-reply', 'admin', 'administrator', 'root', 'null',
+        'undefined', 'email', 'user', 'someone', 'nobody', 'temp'
+    ];
+    if (in_array($localPart, $dummyLocalPatterns, true) && in_array($domain, ['test.com', 'example.com', 'fake.com', 'domain.com', 'email.com', 'asdasd.com', 'sample.com'], true)) {
+        $errorMessage = "The email address '" . sanitize($email) . "' is an invalid test or dummy address. Please use your real, active personal email.";
+        return false;
+    }
+
+    // Reject repetitive single-character or keyboard smash local parts (e.g. "aaaaa", "asdfghjk")
+    if (preg_match('/^(.)\1{4,}$/', $localPart)) {
+        $errorMessage = "The email address contains an invalid repetitive username. Please enter your real email.";
+        return false;
+    }
+
+    // 3. Common domain typo detection with helpful suggestion
+    $domainTypos = [
+        'gamil.com'   => 'gmail.com',
+        'gmaill.com'  => 'gmail.com',
+        'gmial.com'   => 'gmail.com',
+        'gmai.com'    => 'gmail.com',
+        'gmal.com'    => 'gmail.com',
+        'gmaul.com'   => 'gmail.com',
+        'yaho.com'    => 'yahoo.com',
+        'yahooo.com'  => 'yahoo.com',
+        'yhaoo.com'   => 'yahoo.com',
+        'yaho.com.ph' => 'yahoo.com.ph',
+        'hotmial.com' => 'hotmail.com',
+        'hotmai.com'  => 'hotmail.com',
+        'outlok.com'  => 'outlook.com',
+        'outloo.com'  => 'outlook.com',
+    ];
+    if (isset($domainTypos[$domain])) {
+        $suggested = $domainTypos[$domain];
+        $errorMessage = "It looks like you typed '@{$domain}'. Did you mean '@{$suggested}'? Please verify and correct your email address.";
+        return false;
+    }
+
+    // 4. Known Disposable / Temporary / Throwaway Email Domains
+    $disposableDomains = [
+        'mailinator.com', 'tempmail.com', 'temp-mail.org', 'temp-mail.io', 'guerrillamail.com',
+        'guerrillamail.net', 'guerrillamail.org', 'guerrillamailblock.com', 'sharklasers.com',
+        'grr.la', '10minutemail.com', '10minutemail.net', 'trashmail.com', 'trashmail.net',
+        'yopmail.com', 'yopmail.fr', 'yopmail.net', 'dispostable.com', 'getnada.com',
+        'throwawaymail.com', 'fakeinbox.com', 'burnermail.io', 'mohmal.com', 'mytemp.email',
+        'generator.email', 'maildrop.cc', 'inboxkitten.com', 'crazymailing.com', 'armyspy.com',
+        'cuvox.de', 'dayrep.com', 'einrot.com', 'fleckens.hu', 'gustr.com', 'jourrapide.com',
+        'rhyta.com', 'superrito.com', 'teleworm.us', 'emailfake.com', 'fakemailgenerator.com',
+        'discard.email', 'spambog.com', 'tempail.com', 'throwaway.email', 'mailsac.com',
+        'trashmail.io', 'emailondeck.com', 'tempr.email', 'minuteinbox.com', 'dropmail.me'
+    ];
+    if (in_array($domain, $disposableDomains, true) || str_contains($domain, 'tempmail') || str_contains($domain, 'disposable') || str_contains($domain, 'throwaway')) {
+        $errorMessage = "Disposable or temporary email services (@{$domain}) are strictly prohibited. Paikit Health Center requires a permanent email address (e.g. Gmail, Yahoo, Outlook) for official patient records.";
+        return false;
+    }
+
+    // 5. Whitelist check for top trusted providers (fast-path)
+    $trustedProviders = [
+        'gmail.com', 'yahoo.com', 'yahoo.com.ph', 'outlook.com', 'hotmail.com',
+        'live.com', 'icloud.com', 'aol.com', 'proton.me', 'protonmail.com',
+        'zoho.com', 'deped.gov.ph', 'doh.gov.ph', 'up.edu.ph', 'ust.edu.ph',
+        'dlsu.edu.ph', 'ateneo.edu', 'plm.edu.ph', 'pup.edu.ph', 'paikit.health'
+    ];
+    if (in_array($domain, $trustedProviders, true)) {
+        return true;
+    }
+
+    // 6. Live DNS MX/A Record Verification (Ensures domain actually exists & can receive mail)
+    if (function_exists('checkdnsrr')) {
+        $hasMx = @checkdnsrr($domain, 'MX');
+        $hasA  = $hasMx ? true : @checkdnsrr($domain, 'A');
+
+        if (!$hasMx && !$hasA) {
+            $errorMessage = "The email domain '@{$domain}' does not exist or has no active mail server to receive emails. Please enter a real, active email address.";
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Returns a time-based greeting (morning, afternoon, evening) based on Philippine Standard Time.
     $hour = (int)date('G');
     if ($hour >= 5 && $hour < 12) {
         return 'Good morning';

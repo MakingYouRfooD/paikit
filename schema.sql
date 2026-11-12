@@ -50,6 +50,11 @@ CREATE TABLE `users` (
   `role` ENUM('Doctor', 'Staff', 'Client') NOT NULL,
   `is_verified` TINYINT(1) NOT NULL DEFAULT 0,
   `email_verified_at` DATETIME DEFAULT NULL,
+  `active_session_id` VARCHAR(128) DEFAULT NULL,
+  `current_device_token` VARCHAR(128) DEFAULT NULL,
+  `current_device_ip` VARCHAR(45) DEFAULT NULL,
+  `current_device_name` VARCHAR(255) DEFAULT NULL,
+  `last_activity_at` DATETIME DEFAULT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (`patient_id`) REFERENCES `patients`(`patient_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -162,5 +167,20 @@ CREATE TABLE IF NOT EXISTS `email_verifications` (
   INDEX `idx_email_verif_token` (`token`),
   INDEX `idx_email_verif_code` (`email`, `otp_code`),
   INDEX `idx_email_verif_user` (`user_id`),
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 10. Security Alerts Table
+-- Tracks blocked concurrent logins and suspicious access attempts for RA 10173 security compliance.
+CREATE TABLE IF NOT EXISTS `security_alerts` (
+  `alert_id` INT AUTO_INCREMENT PRIMARY KEY,
+  `user_id` INT NOT NULL,
+  `alert_type` VARCHAR(50) NOT NULL DEFAULT 'CONCURRENT_LOGIN_BLOCKED',
+  `message` TEXT NOT NULL,
+  `attempt_ip` VARCHAR(45) DEFAULT NULL,
+  `attempt_device` VARCHAR(255) DEFAULT NULL,
+  `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_sec_user_read` (`user_id`, `is_read`),
   FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

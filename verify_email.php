@@ -135,8 +135,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } elseif ($action === 'resend_code') {
-            if (empty($inputEmail) || !filter_var($inputEmail, FILTER_VALIDATE_EMAIL)) {
-                $error = "Please provide a valid registered email address to resend the code.";
+            if (empty($inputEmail) || !is_valid_deliverable_email($inputEmail, $emailValErr)) {
+                $error = $emailValErr ?: "Please provide a valid, active registered email address to resend the code.";
             } else {
                 $stmtUser = $pdo->prepare("SELECT user_id, username, full_name, email, is_verified FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1");
                 $stmtUser->execute([$inputEmail]);

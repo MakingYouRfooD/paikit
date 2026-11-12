@@ -49,35 +49,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_submit'])) {
                     exit;
                 }
 
-                // Regenerate session ID to prevent session fixation attacks
-                session_regenerate_id(true);
+                // Check Single Active Device Constraint (Strict Concurrent Login Prevention)
+                $concurrentCheck = check_concurrent_device_login($pdo, (int)$user['user_id']);
+                if ($concurrentCheck['blocked']) {
+                    $targetEmail   = !empty($user['email']) ? $user['email'] : (!empty($user['patient_email']) ? $user['patient_email'] : '');
+                    $displayName   = $user['full_name'] ?: ($user['patient_name'] ?: $user['username']);
+                    $attemptIp     = get_client_ip();
+                    $attemptDevice = get_device_description();
+                    $activeDevice  = $concurrentCheck['device'] ?: 'Another device';
 
-                $_SESSION['user_id']    = $user['user_id'];
-                $_SESSION['username']   = $user['username'];
-                $_SESSION['email']      = $user['email'] ?? '';
-                $_SESSION['role']       = $user['role'];
-                $_SESSION['patient_id'] = $user['patient_id'];
-                $_SESSION['full_name']  = $user['full_name'] ?: ($user['patient_name'] ?: $user['username']);
+                    // 1. RA 10173 Audit Logging
+                    audit_log(
+                        'LOGIN_BLOCKED_CONCURRENT_DEVICE', 
+                        "Concurrent login attempt blocked for user '{$user['username']}'. Currently active on '{$activeDevice}' ({$concurrentCheck['ip']}). Attempted from: '{$attemptDevice}' ({$attemptIp}).", 
+                        'users', 
+                        (string)$user['user_id']
+                    );
 
-                audit_log('LOGIN_SUCCESS', "User '{$user['username']}' ({$user['email']}) authenticated as {$user['role']}.");
+                    // 2. Insert In-App Alert Notification for Account Owner
+                    $alertMsg = "May nagtangkang mag-log in sa iyong account gamit ang ibang device ({$attemptDevice}) mula sa IP {$attemptIp}. Hinarang ito ng system para sa iyong proteksyon.";
+                    record_security_alert($pdo, (int)$user['user_id'], 'CONCURRENT_LOGIN_BLOCKED', $alertMsg, $attemptIp, $attemptDevice);
 
-                $displayName = $user['full_name'] ?: ($user['patient_name'] ?: $user['username']);
-                $welcomeMsg  = get_time_based_welcome($displayName);
+                    // 3. Dispatch Security Alert Email to Account Owner
+                    if (!empty($targetEmail)) {
+                        require_once __DIR__ . '/config/mail.php';
+                        send_security_alert_email($targetEmail, $displayName, [
+                            'attempt_ip'     => $attemptIp,
+                            'attempt_device' => $attemptDevice,
+                            'active_device'  => $activeDevice,
+                            'attempt_time'   => date('F j, Y, g:i A \P\S\T')
+                        ]);
+                    }
 
-                // Strict RBAC Redirection with time-based greeting (Clean URLs)
-                switch ($user['role']) {
-                    case 'Doctor':
-                        header("Location: doctor/dashboard?msg=" . urlencode($welcomeMsg));
-                        exit;
-                    case 'Staff':
-                        header("Location: staff/dashboard?msg=" . urlencode($welcomeMsg));
-                        exit;
-                    case 'Client':
-                        header("Location: client/dashboard?msg=" . urlencode($welcomeMsg));
-                        exit;
-                    default:
-                        header("Location: ./?msg=" . urlencode($welcomeMsg));
-                        exit;
+                    // 4. Present clear blocked notification to attempting user
+                    $errorScope = 'login';
+                    $error = "Pansamantalang hinarang: Naka-log in na ang account na ito sa ibang device (" . sanitize($activeDevice) . "). Bawal mag-log in nang sabay sa dalawang magkaibang device para sa seguridad ng iyong datos. May ipinadalang alert notification sa iyong rehistradong email.";
+                } else {
+                    // Regenerate session ID to prevent session fixation attacks
+                    session_regenerate_id(true);
+
+                    $_SESSION['user_id']    = $user['user_id'];
+                    $_SESSION['username']   = $user['username'];
+                    $_SESSION['email']      = $user['email'] ?? '';
+                    $_SESSION['role']       = $user['role'];
+                    $_SESSION['patient_id'] = $user['patient_id'];
+                    $_SESSION['full_name']  = $user['full_name'] ?: ($user['patient_name'] ?: $user['username']);
+
+                    // Bind active device session in database
+                    record_active_login($pdo, (int)$user['user_id']);
+
+                    audit_log('LOGIN_SUCCESS', "User '{$user['username']}' ({$user['email']}) authenticated as {$user['role']} on " . get_device_description() . ".");
+
+                    $displayName = $user['full_name'] ?: ($user['patient_name'] ?: $user['username']);
+                    $welcomeMsg  = get_time_based_welcome($displayName);
+
+                    // Strict RBAC Redirection with time-based greeting (Clean URLs)
+                    switch ($user['role']) {
+                        case 'Doctor':
+                            header("Location: doctor/dashboard?msg=" . urlencode($welcomeMsg));
+                            exit;
+                        case 'Staff':
+                            header("Location: staff/dashboard?msg=" . urlencode($welcomeMsg));
+                            exit;
+                        case 'Client':
+                            header("Location: client/dashboard?msg=" . urlencode($welcomeMsg));
+                            exit;
+                        default:
+                            header("Location: ./?msg=" . urlencode($welcomeMsg));
+                            exit;
+                    }
                 }
             } else {
                 audit_log('LOGIN_FAILURE', "Failed login attempt for identifier '{$loginInput}'.");
@@ -128,8 +168,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['client_signup'])) {
             $error = "Permitted addresses are official areas in Canlubang only: Asia 1, Asia 2, Carmel Housing, Ceris 1 & 2, GK, Manfil, Mcdc, Paikit, or Palao.";
         } elseif (!is_valid_ph_mobile($mobile)) {
             $error = "Mobile number must be a valid 11-digit Philippine mobile number starting with 09 or 08 (e.g. 09171234567).";
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $error = "Please enter a valid email address (e.g. juan.delacruz@gmail.com).";
+        } elseif (!is_valid_deliverable_email($email, $emailError)) {
+            $error = $emailError ?: "Please enter a valid, active personal email address (e.g. juan.delacruz@gmail.com).";
         } elseif ($password !== $confirmPassword) {
             $error = "Password and Confirm Password do not match.";
         } elseif (strlen($password) < 8 
@@ -1059,6 +1099,37 @@ $slotsRemaining = max(0, $maxSlots - $slotsTaken);
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             showModalFloatingError('Please enter a valid email address (e.g. juan.delacruz@gmail.com).', 'regEmail');
+            e.preventDefault();
+            return false;
+        }
+
+        const emailParts = email.toLowerCase().split('@');
+        const emailLocal = emailParts[0] || '';
+        const emailDom   = emailParts[1] || '';
+
+        // Obvious fake dummy patterns
+        const dummyPatterns = ['test', 'fake', 'dummy', 'sample', 'asdf', 'asdasd', 'qwerty', '123456', 'noreply', 'admin'];
+        if (dummyPatterns.includes(emailLocal) && ['test.com', 'example.com', 'fake.com', 'sample.com', 'asdasd.com'].includes(emailDom)) {
+            showModalFloatingError('The email entered is a dummy or test email. Please provide your real personal email.', 'regEmail');
+            e.preventDefault();
+            return false;
+        }
+
+        // Common typos
+        const commonTypos = {
+            'gamil.com': 'gmail.com', 'gmaill.com': 'gmail.com', 'gmial.com': 'gmail.com', 'gmai.com': 'gmail.com',
+            'yaho.com': 'yahoo.com', 'yahooo.com': 'yahoo.com', 'hotmial.com': 'hotmail.com', 'outlok.com': 'outlook.com'
+        };
+        if (commonTypos[emailDom]) {
+            showModalFloatingError('Did you mean @' + commonTypos[emailDom] + '? Please verify your email spelling.', 'regEmail');
+            e.preventDefault();
+            return false;
+        }
+
+        // Common disposable domains
+        const disposableList = ['mailinator.com', 'tempmail.com', 'temp-mail.org', 'guerrillamail.com', '10minutemail.com', 'trashmail.com', 'yopmail.com', 'dispostable.com', 'getnada.com', 'throwawaymail.com', 'fakeinbox.com', 'burnermail.io'];
+        if (disposableList.includes(emailDom) || emailDom.includes('tempmail') || emailDom.includes('disposable')) {
+            showModalFloatingError('Disposable or temporary email services (@' + emailDom + ') are not permitted. Please use a permanent email address (e.g. Gmail, Yahoo, Outlook).', 'regEmail');
             e.preventDefault();
             return false;
         }

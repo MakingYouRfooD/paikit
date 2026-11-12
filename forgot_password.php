@@ -17,8 +17,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $inputEmail = trim($_POST['email'] ?? '');
 
-        if (empty($inputEmail) || !filter_var($inputEmail, FILTER_VALIDATE_EMAIL)) {
-            $error = "Please provide a valid registered email address.";
+        if (empty($inputEmail) || !is_valid_deliverable_email($inputEmail, $emailValErr)) {
+            $error = $emailValErr ?: "Please provide a valid registered email address.";
         } else {
             // Find user by email (in users table or joined with patients)
             $stmt = $pdo->prepare("

@@ -9,8 +9,12 @@ require_once __DIR__ . '/db.php';
 
 if (is_logged_in()) {
     $auth = get_auth_user();
+    $userId = $auth['user_id'] ?? ($_SESSION['user_id'] ?? null);
     $username = $auth['username'] ?? 'User';
     $role = $auth['role'] ?? 'User';
+    if ($userId) {
+        clear_active_login($pdo, (int)$userId);
+    }
     audit_log('LOGOUT', "User '{$username}' logged out.");
 }
 

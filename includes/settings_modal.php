@@ -40,6 +40,9 @@ if ($mRole === 'Staff') {
     }
     $modalMailConfig = get_mail_config();
 }
+
+// Include real-time security alert banner & live modal
+require_once __DIR__ . '/security_alert_banner.php';
 ?>
 
 <!-- UNIFIED ACCOUNT SETTINGS & SECURITY MODAL -->
@@ -254,6 +257,31 @@ if ($mRole === 'Staff') {
 
                     <!-- TAB 2: CHANGE PASSWORD & SECURITY -->
                     <div class="tab-pane fade" id="tab-security" role="tabpanel" aria-labelledby="security-tab">
+                        <!-- Active Device & Session Security Status -->
+                        <div class="card border-0 bg-light p-3 rounded-3 mb-4">
+                            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="bg-success text-white rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                                        <i class="bi bi-display fs-5"></i>
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold text-dark">Kasalukuyang Aktibong Device</div>
+                                        <div class="text-secondary small">
+                                            <strong><?= sanitize(get_device_description()) ?></strong> (Iyong Device) &bull; IP: <code><?= sanitize(get_client_ip()) ?></code>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="badge bg-success-subtle text-success border border-success px-3 py-2 rounded-pill small">
+                                        <i class="bi bi-shield-lock-fill me-1"></i> Protektado: Single Device Active
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="small text-muted mt-2 pt-2 border-top">
+                                <i class="bi bi-info-circle me-1"></i> Bawal mag-log in sa higit sa isang device nang sabay. Kung may ibang sumubok mag-log in gamit ang iyong account, awtomatiko itong haharangin at makakatanggap ka ng security alert email at abiso sa screen.
+                            </div>
+                        </div>
+
                         <div class="alert alert-info border-0 rounded-3 mb-4 d-flex align-items-start">
                             <i class="bi bi-shield-check fs-3 me-3 text-primary flex-shrink-0 mt-1"></i>
                             <div>

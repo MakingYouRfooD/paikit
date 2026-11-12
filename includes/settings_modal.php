@@ -372,29 +372,17 @@ require_once __DIR__ . '/security_alert_banner.php';
                                     </div>
                                 </div>
 
-                                <!-- Real-Time Password Checklist (Matching Registration Validation) -->
+                                <!-- Real-Time Password Security Requirements Checklist -->
                                 <div class="col-12">
-                                    <div class="p-3 bg-light rounded-3 border">
-                                        <div class="small fw-bold text-dark mb-2">Password Security Checklist:</div>
-                                        <div class="row g-2 small">
-                                            <div class="col-sm-6" id="rule-length">
-                                                <i class="bi bi-circle text-muted me-1"></i> At least 8 characters
-                                            </div>
-                                            <div class="col-sm-6" id="rule-upper">
-                                                <i class="bi bi-circle text-muted me-1"></i> Uppercase letter (A-Z)
-                                            </div>
-                                            <div class="col-sm-6" id="rule-lower">
-                                                <i class="bi bi-circle text-muted me-1"></i> Lowercase letter (a-z)
-                                            </div>
-                                            <div class="col-sm-6" id="rule-number">
-                                                <i class="bi bi-circle text-muted me-1"></i> Number (0-9)
-                                            </div>
-                                            <div class="col-sm-6" id="rule-special">
-                                                <i class="bi bi-circle text-muted me-1"></i> Special symbol (@, #, $, !, %, etc.)
-                                            </div>
-                                            <div class="col-sm-6" id="rule-match">
-                                                <i class="bi bi-circle text-muted me-1"></i> Passwords match
-                                            </div>
+                                    <div class="p-2 mb-2 bg-light rounded border" style="font-size: 0.72rem;">
+                                        <div class="fw-bold text-muted mb-1"><i class="bi bi-shield-check me-1"></i> PASSWORD SECURITY REQUIREMENTS:</div>
+                                        <div class="row g-1">
+                                            <div class="col-6" id="changeRuleLength"><i class="bi bi-x-circle text-danger me-1"></i> Min. 8 characters</div>
+                                            <div class="col-6" id="changeRuleUpper"><i class="bi bi-x-circle text-danger me-1"></i> Uppercase letter (A-Z)</div>
+                                            <div class="col-6" id="changeRuleLower"><i class="bi bi-x-circle text-danger me-1"></i> Lowercase letter (a-z)</div>
+                                            <div class="col-6" id="changeRuleNumber"><i class="bi bi-x-circle text-danger me-1"></i> Number (0-9)</div>
+                                            <div class="col-6" id="changeRuleSpecial"><i class="bi bi-x-circle text-danger me-1"></i> Special char (@#$!%...)</div>
+                                            <div class="col-6" id="changeRuleMatch"><i class="bi bi-x-circle text-danger me-1"></i> Passwords match</div>
                                         </div>
                                     </div>
                                 </div>
@@ -455,19 +443,13 @@ require_once __DIR__ . '/security_alert_banner.php';
         }
     }
 
-    function updateChangeRuleBadge(elId, passed) {
-        const el = document.getElementById(elId);
+    function updateChangeRuleBadge(id, valid, text) {
+        const el = document.getElementById(id);
         if (!el) return;
-        if (passed) {
-            el.classList.remove('text-muted', 'text-danger');
-            el.classList.add('text-success', 'fw-bold');
-            const icon = el.querySelector('i');
-            if (icon) icon.className = 'bi bi-check-circle-fill text-success me-1';
+        if (valid) {
+            el.innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i> ' + text;
         } else {
-            el.classList.remove('text-success', 'fw-bold');
-            el.classList.add('text-muted');
-            const icon = el.querySelector('i');
-            if (icon) icon.className = 'bi bi-circle text-muted me-1';
+            el.innerHTML = '<i class="bi bi-x-circle text-danger me-1"></i> ' + text;
         }
     }
 
@@ -475,19 +457,19 @@ require_once __DIR__ . '/security_alert_banner.php';
         const p1 = document.getElementById('newPwdInput') ? document.getElementById('newPwdInput').value : '';
         const p2 = document.getElementById('confirmPwdInput') ? document.getElementById('confirmPwdInput').value : '';
 
-        const hasLen = p1.length >= 8;
-        const hasUpper = /[A-Z]/.test(p1);
-        const hasLower = /[a-z]/.test(p1);
-        const hasNum = /[0-9]/.test(p1);
-        const hasSpecial = /[^A-Za-z0-9]/.test(p1);
-        const hasMatch = (p1.length > 0) && (p1 === p2);
+        const hasLen     = p1.length >= 8;
+        const hasUpper   = /[A-Z]/.test(p1);
+        const hasLower   = /[a-z]/.test(p1);
+        const hasNum     = /[0-9]/.test(p1);
+        const hasSpecial = /[\W_]/.test(p1);
+        const hasMatch   = (p1.length > 0) && (p1 === p2);
 
-        updateChangeRuleBadge('rule-length', hasLen);
-        updateChangeRuleBadge('rule-upper', hasUpper);
-        updateChangeRuleBadge('rule-lower', hasLower);
-        updateChangeRuleBadge('rule-number', hasNum);
-        updateChangeRuleBadge('rule-special', hasSpecial);
-        updateChangeRuleBadge('rule-match', hasMatch);
+        updateChangeRuleBadge('changeRuleLength', hasLen, 'Min. 8 characters');
+        updateChangeRuleBadge('changeRuleUpper', hasUpper, 'Uppercase letter (A-Z)');
+        updateChangeRuleBadge('changeRuleLower', hasLower, 'Lowercase letter (a-z)');
+        updateChangeRuleBadge('changeRuleNumber', hasNum, 'Number (0-9)');
+        updateChangeRuleBadge('changeRuleSpecial', hasSpecial, 'Special char (@#$!%...)');
+        updateChangeRuleBadge('changeRuleMatch', hasMatch, 'Passwords match');
 
         return (hasLen && hasUpper && hasLower && hasNum && hasSpecial && hasMatch);
     }

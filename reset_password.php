@@ -39,10 +39,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $newPassword     = $_POST['password'] ?? '';
         $confirmPassword = $_POST['confirm_password'] ?? '';
 
-        if (strlen($newPassword) < 6) {
-            $error = "Password must be at least 6 characters in length.";
-        } elseif ($newPassword !== $confirmPassword) {
-            $error = "Passwords do not match. Please ensure both fields are identical.";
+        if ($newPassword !== $confirmPassword) {
+            $error = "Password and Confirm Password do not match.";
+        } elseif (strlen($newPassword) < 8 
+            || !preg_match('/[A-Z]/', $newPassword) 
+            || !preg_match('/[a-z]/', $newPassword) 
+            || !preg_match('/[0-9]/', $newPassword) 
+            || !preg_match('/[\W_]/', $newPassword)) {
+            $error = "Password must be at least 8 characters long and contain uppercase (A-Z), lowercase (a-z), numbers (0-9), and special characters (e.g. @, #, $, !).";
         } else {
             try {
                 $pdo->beginTransaction();
@@ -186,23 +190,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <label for="newPassword" class="form-label fw-bold small text-dark">New Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light text-muted"><i class="bi bi-lock"></i></span>
-                                    <input type="password" name="password" id="newPassword" class="form-control" placeholder="Minimum 6 characters" required minlength="6" autofocus>
+                                    <input type="password" name="password" id="newPassword" class="form-control" placeholder="Minimum 8 characters" required minlength="8" autofocus oninput="checkPasswordRules()">
                                     <button class="btn btn-outline-secondary" type="button" onclick="togglePassVisibility('newPassword', this)" title="Show / Hide Password">
                                         <i class="bi bi-eye"></i>
                                     </button>
                                 </div>
                             </div>
 
-                            <div class="mb-4">
+                            <div class="mb-3">
                                 <label for="confirmPassword" class="form-label fw-bold small text-dark">Confirm New Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light text-muted"><i class="bi bi-lock-fill"></i></span>
-                                    <input type="password" name="confirm_password" id="confirmPassword" class="form-control" placeholder="Re-enter password" required minlength="6">
+                                    <input type="password" name="confirm_password" id="confirmPassword" class="form-control" placeholder="Re-enter password" required minlength="8" oninput="checkPasswordRules()">
                                     <button class="btn btn-outline-secondary" type="button" onclick="togglePassVisibility('confirmPassword', this)" title="Show / Hide Password">
                                         <i class="bi bi-eye"></i>
                                     </button>
                                 </div>
-                                <div id="passMatchMsg" class="form-text small" style="font-size: 0.75rem;"></div>
+                            </div>
+
+                            <!-- Real-time Password Security Checklist -->
+                            <div class="p-2 mb-3 bg-light rounded border" style="font-size: 0.72rem;">
+                                <div class="fw-bold text-muted mb-1"><i class="bi bi-shield-check me-1"></i> PASSWORD SECURITY REQUIREMENTS:</div>
+                                <div class="row g-1">
+                                    <div class="col-6" id="ruleLength"><i class="bi bi-x-circle text-danger me-1"></i> Min. 8 characters</div>
+                                    <div class="col-6" id="ruleUpper"><i class="bi bi-x-circle text-danger me-1"></i> Uppercase letter (A-Z)</div>
+                                    <div class="col-6" id="ruleLower"><i class="bi bi-x-circle text-danger me-1"></i> Lowercase letter (a-z)</div>
+                                    <div class="col-6" id="ruleNumber"><i class="bi bi-x-circle text-danger me-1"></i> Number (0-9)</div>
+                                    <div class="col-6" id="ruleSpecial"><i class="bi bi-x-circle text-danger me-1"></i> Special char (@#$!%...)</div>
+                                    <div class="col-6" id="ruleMatch"><i class="bi bi-x-circle text-danger me-1"></i> Passwords match</div>
+                                </div>
                             </div>
 
                             <button type="submit" class="btn btn-primary w-100 fw-bold py-2 shadow-sm mb-3">
@@ -249,42 +265,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        function validatePasswords(e) {
-            const p1 = document.getElementById('newPassword').value;
-            const p2 = document.getElementById('confirmPassword').value;
-            if (p1.length < 6) {
-                alert('Password must be at least 6 characters long.');
-                e.preventDefault();
-                return false;
+        function updateRuleBadge(id, valid, text) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (valid) {
+                el.innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i> ' + text;
+            } else {
+                el.innerHTML = '<i class="bi bi-x-circle text-danger me-1"></i> ' + text;
             }
-            if (p1 !== p2) {
-                alert('Passwords do not match. Please verify your new password.');
+        }
+
+        function checkPasswordRules() {
+            const p1 = document.getElementById('newPassword') ? document.getElementById('newPassword').value : '';
+            const p2 = document.getElementById('confirmPassword') ? document.getElementById('confirmPassword').value : '';
+
+            const hasLength  = p1.length >= 8;
+            const hasUpper   = /[A-Z]/.test(p1);
+            const hasLower   = /[a-z]/.test(p1);
+            const hasNumber  = /[0-9]/.test(p1);
+            const hasSpecial = /[\W_]/.test(p1);
+            const hasMatch   = p1.length > 0 && p1 === p2;
+
+            updateRuleBadge('ruleLength', hasLength, 'Min. 8 characters');
+            updateRuleBadge('ruleUpper', hasUpper, 'Uppercase letter (A-Z)');
+            updateRuleBadge('ruleLower', hasLower, 'Lowercase letter (a-z)');
+            updateRuleBadge('ruleNumber', hasNumber, 'Number (0-9)');
+            updateRuleBadge('ruleSpecial', hasSpecial, 'Special char (@#$!%...)');
+            updateRuleBadge('ruleMatch', hasMatch, 'Passwords match');
+
+            return hasLength && hasUpper && hasLower && hasNumber && hasSpecial && hasMatch;
+        }
+
+        function validatePasswords(e) {
+            if (!checkPasswordRules()) {
+                alert('Please meet all password requirements (at least 8 characters, uppercase A-Z, lowercase a-z, number 0-9, special character, and matching confirmation).');
                 e.preventDefault();
                 return false;
             }
             return true;
-        }
-
-        const p1Input = document.getElementById('newPassword');
-        const p2Input = document.getElementById('confirmPassword');
-        const matchMsg = document.getElementById('passMatchMsg');
-
-        function checkMatch() {
-            if (!p2Input || !matchMsg) return;
-            if (p2Input.value.length === 0) {
-                matchMsg.textContent = '';
-                return;
-            }
-            if (p1Input.value === p2Input.value) {
-                matchMsg.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Passwords match!</span>';
-            } else {
-                matchMsg.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Passwords do not match.</span>';
-            }
-        }
-
-        if (p1Input && p2Input) {
-            p1Input.addEventListener('input', checkMatch);
-            p2Input.addEventListener('input', checkMatch);
         }
     </script>
 </body>

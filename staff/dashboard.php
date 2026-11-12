@@ -1706,7 +1706,7 @@ $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs WHERE act
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form action="walkin_process" method="POST">
+            <form action="walkin_process" method="POST" onsubmit="return validateCreatePersonnel(event)">
                 <div class="modal-body p-4">
                     <input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
                     <input type="hidden" name="action" value="create_user">
@@ -1738,10 +1738,22 @@ $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs WHERE act
                     <div class="mb-3">
                         <label class="form-label fw-bold small text-dark">Initial Password</label>
                         <div class="input-group">
-                            <input type="password" name="password" id="staffCreatePwd" class="form-control" placeholder="Assign secure password" required minlength="6">
+                            <input type="password" name="password" id="staffCreatePwd" class="form-control" placeholder="Assign secure password" required minlength="8" oninput="checkStaffCreatePwdRules()">
                             <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('staffCreatePwd', this)" title="Show / Hide Password">
                                 <i class="bi bi-eye"></i>
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- Real-time Password Security Checklist -->
+                    <div class="p-2 mb-3 bg-light rounded border" style="font-size: 0.72rem;">
+                        <div class="fw-bold text-muted mb-1"><i class="bi bi-shield-check me-1"></i> PASSWORD SECURITY REQUIREMENTS:</div>
+                        <div class="row g-1">
+                            <div class="col-6" id="staffRuleLength"><i class="bi bi-x-circle text-danger me-1"></i> Min. 8 characters</div>
+                            <div class="col-6" id="staffRuleUpper"><i class="bi bi-x-circle text-danger me-1"></i> Uppercase letter (A-Z)</div>
+                            <div class="col-6" id="staffRuleLower"><i class="bi bi-x-circle text-danger me-1"></i> Lowercase letter (a-z)</div>
+                            <div class="col-6" id="staffRuleNumber"><i class="bi bi-x-circle text-danger me-1"></i> Number (0-9)</div>
+                            <div class="col-12" id="staffRuleSpecial"><i class="bi bi-x-circle text-danger me-1"></i> Special char (@#$!%...)</div>
                         </div>
                     </div>
                 </div>
@@ -1984,6 +1996,42 @@ $distinctActions = $pdo->query("SELECT DISTINCT action FROM audit_logs WHERE act
         el.value = el.value.replace(/[0-9]/g, '').replace(/[^a-zA-ZñÑ\s\.\'\-]/g, '');
         // Prohibit more than 2 consecutive identical letters (e.g. max 2 letters, prevent "aaa", "zzzz")
         el.value = el.value.replace(/([a-zA-ZñÑ])\1{2,}/gi, '$1$1');
+    }
+
+    function updateStaffRuleBadge(id, valid, text) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (valid) {
+            el.innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i> ' + text;
+        } else {
+            el.innerHTML = '<i class="bi bi-x-circle text-danger me-1"></i> ' + text;
+        }
+    }
+
+    function checkStaffCreatePwdRules() {
+        const pwd = document.getElementById('staffCreatePwd') ? document.getElementById('staffCreatePwd').value : '';
+        const hasLen     = pwd.length >= 8;
+        const hasUpper   = /[A-Z]/.test(pwd);
+        const hasLower   = /[a-z]/.test(pwd);
+        const hasNumber  = /[0-9]/.test(pwd);
+        const hasSpecial = /[\W_]/.test(pwd);
+
+        updateStaffRuleBadge('staffRuleLength', hasLen, 'Min. 8 characters');
+        updateStaffRuleBadge('staffRuleUpper', hasUpper, 'Uppercase letter (A-Z)');
+        updateStaffRuleBadge('staffRuleLower', hasLower, 'Lowercase letter (a-z)');
+        updateStaffRuleBadge('staffRuleNumber', hasNumber, 'Number (0-9)');
+        updateStaffRuleBadge('staffRuleSpecial', hasSpecial, 'Special char (@#$!%...)');
+
+        return hasLen && hasUpper && hasLower && hasNumber && hasSpecial;
+    }
+
+    function validateCreatePersonnel(e) {
+        if (!checkStaffCreatePwdRules()) {
+            alert('Initial password must meet all security requirements: minimum 8 characters, uppercase letter (A-Z), lowercase letter (a-z), number (0-9), and a special character.');
+            if (e) e.preventDefault();
+            return false;
+        }
+        return true;
     }
 
     function togglePasswordVisibility(inputId, btn) {

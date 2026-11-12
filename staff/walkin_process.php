@@ -229,6 +229,15 @@ if ($action === 'create_user') {
         exit;
     }
 
+    if (strlen($password) < 8 
+        || !preg_match('/[A-Z]/', $password) 
+        || !preg_match('/[a-z]/', $password) 
+        || !preg_match('/[0-9]/', $password) 
+        || !preg_match('/[\W_]/', $password)) {
+        header("Location: dashboard?tab=users&error=" . urlencode("Password must be at least 8 characters long and contain uppercase (A-Z), lowercase (a-z), numbers (0-9), and special characters (e.g. @, #, $, !)."));
+        exit;
+    }
+
     if (!is_valid_person_name($fullName, 2)) {
         header("Location: dashboard?tab=users&error=" . urlencode("Invalid Name: Numbers, spaces only, or ghost names are prohibited. Must contain at least 2 letters and max 2 consecutive identical letters."));
         exit;
